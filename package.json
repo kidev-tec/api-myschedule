@@ -1,0 +1,41 @@
+{
+  "name": "minha-agenda-api",
+  "version": "0.1.0",
+  "description": "API do Minha Agenda — agenda profissional para egressos da Oficina da Beleza",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -b tsconfig.app.json",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "biome check src/ test/",
+    "lint:fix": "biome check --write src/ test/",
+    "typecheck": "tsc -p tsconfig.test.json --noEmit",
+    "validate:pr": "biome check src/ test/ && tsc -p tsconfig.test.json --noEmit && vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "argon2": "^0.45.1",
+    "bullmq": "^6.3.4",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.13.7",
+    "ioredis": "^6.0.0",
+    "jose": "^6.2.12",
+    "postgres": "^3.4.9",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.12",
+    "@types/node": "^26.5.0",
+    "drizzle-kit": "^0.31.10",
+    "pg": "^8.23.0",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
+  }
+}
