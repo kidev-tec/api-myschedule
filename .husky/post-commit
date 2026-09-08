@@ -1,0 +1,32 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+# This runs even if commit was done with --no-verify
+echo 'Running post-commit validation...'
+
+# 1) Check if this commit introduced any test/coverage regression
+# (quick heuristic: run the test suite; if it fails, we revert)
+if ! npm run test > /dev/null 2>&1; then
+  echo "❌ Post-commit: tests failed after commit. Reverting..."
+  git reset --soft HEAD~1
+  git commit --no-edit --no-verify
+  echo '🔁 Commit reverted. Fix the issues and recommit.'
+  exit 1
+fi
+
+# 2) Enforce email policy (mirrors global hook, in case local hooksPath overrides)
+ALLOWED_EMAIL="mmmarckos@gmail.com"
+CURRENT_EMAIL=$(git config user.email)
+if [ "$CURRENT_EMAIL" != "$ALLOWED_EMAIL" ]; then
+  echo ""
+  echo "❌ BLOQUEADO: git user.email = '$CURRENT_EMAIL'"
+  echo "   Esperado: '$ALLOWED_EMAIL'"
+  echo "   Corrija com: git config user.email '$ALLOWED_EMAIL'"
+  echo ""
+  git reset --soft HEAD~1
+  git commit --no-edit --no-verify
+  exit 1
+fi
+
+echo "✅ Post-commit checks passed"
+exit 0

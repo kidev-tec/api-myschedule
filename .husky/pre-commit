@@ -1,0 +1,29 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+echo 'Running pre-commit checks...'
+
+echo '🔍 Lint...'
+npm run lint || { echo '❌ Lint failed'; exit 1; }
+
+echo '🔍 Typecheck...'
+npm run typecheck || { echo '❌ Typecheck failed'; exit 1; }
+
+echo '🔍 Tests with coverage 100%...'
+OUTPUT=$(npm run test:coverage 2>&1)
+echo "$OUTPUT" | tail -5
+if ! echo "$OUTPUT" | grep -q "All files.*100.*100.*100.*100"; then
+  echo '❌ Coverage not 100%'
+  exit 1
+fi
+
+echo '🔍 Secret scan...'
+# Padrões de VALOR real, não nomes de variáveis: private keys, b64 longo, connection strings com senha
+STAGED_SECRETS=$(git diff --cached -U0 | grep -E '^\+' | grep -vE '^\+\+\+' | grep -v '\*\*\*' | grep -vE 'postgres:(dev|postgres|test)@(localhost|127\.0\.0\.1)' | grep -E '(BEGIN (RSA|EC|OPENSSH) PRIVATE|sk-[a-zA-Z0-9]{20,}|AIza[A-Za-z0-9_-]{30,}|://[^/@[:space:]]+:[^/@[:space:]]+@)' || true)
+if [ -n "$STAGED_SECRETS" ]; then
+  echo "$STAGED_SECRETS" | head -5
+  echo '❌ Possible secret detected in staged diff'
+  exit 1
+fi
+
+echo '✅ All pre-commit checks passed'

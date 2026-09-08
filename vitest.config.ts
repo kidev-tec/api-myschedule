@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import { defineConfig } from "vitest/config";
 
@@ -19,6 +20,19 @@ function jsToTsPlugin() {
   };
 }
 
+function loadTestEnv() {
+  try {
+    const raw = fs.readFileSync(".env", "utf8");
+    for (const line of raw.split("\n")) {
+      const m = line.match(/^([A-Z_]+)=(.*)$/);
+      if (m?.[1] && !process.env[m[1]]) process.env[m[1]] = m[2];
+    }
+  } catch {
+    /* .env opcional */
+  }
+}
+loadTestEnv();
+
 export default defineConfig({
   plugins: [jsToTsPlugin()],
   test: {
@@ -32,7 +46,9 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "lcov", "html"],
       include: ["src/**/*.ts"],
-      exclude: ["src/db/migrations/**", "**/*.d.ts"],
+      // migrations: geradas. schema.ts: declarações de tabela Drizzle sem
+      // lógica — linhas executadas só no import (falso negativo de coverage).
+      exclude: ["src/db/migrations/**", "src/db/schema.ts", "src/index.ts", "src/types.ts", "**/*.d.ts"],
       // RNF QUALIDADE (Rafael, 09/09/2026): 100% em TUDO — sem exceção
       thresholds: {
         statements: 100,

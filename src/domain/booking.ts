@@ -8,17 +8,14 @@
  * de verdade testada com coverage 100%.
  */
 export function overlaps(
-  existingStart: Date,
-  existingEnd: Date,
-  newStart: Date,
-  newEnd: Date,
+	existingStart: Date,
+	existingEnd: Date,
+	newStart: Date,
+	newEnd: Date,
 ): boolean {
-  if (
-    existingStart >= existingEnd ||
-    newStart >= newEnd
-  ) {
-    throw new Error("booking invariant violation: start must be < end");
-  }
-  // [a1,a2) e [b1,b2) intersectam sse a1 < b2 && b1 < a2
-  return existingStart < newEnd && newStart < existingEnd;
+	if (existingStart >= existingEnd || newStart >= newEnd) {
+		throw new Error("booking invariant violation: start must be < end");
+	}
+	// [a1,a2) e [b1,b2) intersectam sse a1 < b2 && b1 < a2
+	return existingStart < newEnd && newStart < existingEnd;
 }
