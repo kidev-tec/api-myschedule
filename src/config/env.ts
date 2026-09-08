@@ -10,9 +10,12 @@ const envSchema = z.object({
     .string()
     .min(1, "obrigatória (postgres://...)"),
   CORS_ORIGINS: z.string().default("*"),
-  JWT_SECRET: z.string().min(32, "mínimo 32 caracteres"),
-  GOOGLE_CLIENT_ID: z.string().optional(),
-  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  // Auth = Firebase (Rafael, 09/09): a API valida o ID token emitido pelo
+  // Firebase Auth (email/senha + Google OAuth). Sem JWT próprio.
+  FIREBASE_PROJECT_ID: z.string().min(1, "obrigatória (project id do Firebase)"),
+  // Credenciais de serviço do Firebase (firebase-admin): JSON completo no env
+  // (FIREBASE_SERVICE_ACCOUNT_B64 = base64 do service account JSON) — NUNCA commitar.
+  FIREBASE_SERVICE_ACCOUNT_B64: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

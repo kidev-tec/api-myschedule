@@ -20,12 +20,11 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
-    "argon2": "^0.45.1",
     "bullmq": "^6.3.4",
     "drizzle-orm": "^0.45.2",
+    "firebase-admin": "^14.3.0",
     "hono": "^4.13.7",
     "ioredis": "^6.0.0",
-    "jose": "^6.2.12",
     "postgres": "^3.4.9",
     "zod": "^4.5.4"
   },
