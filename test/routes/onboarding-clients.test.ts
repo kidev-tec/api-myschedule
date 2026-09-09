@@ -821,6 +821,110 @@ describe("/v1/clients", () => {
 		).toBe(404);
 	});
 
+	it("paywall: 404 sem user e sem business (gate do middleware)", async () => {
+		// ghost: user não sincronizado → !me → null → 404
+		const ghostUid = `ghost-pw-${Date.now()}`;
+		verifyMock.mockImplementation(async (token: string) => {
+			if (token !== "x" && token !== ghostUid) throw new Error("invalid");
+			return { uid: token, email: `${token}@t.com`, name: "P" };
+		});
+		const gh = { Authorization: `Bearer ${ghostUid}` };
+		expect(
+			(
+				await app.request("/v1/services", {
+					method: "POST",
+					headers: { "content-type": "application/json", ...gh },
+					body: JSON.stringify({ name: "X", duration_min: 30, price_cents: 0 }),
+				})
+			).status,
+		).toBe(404);
+
+		// user sincronizado mas business sumiu (caso defensivo) → 404
+		const bizId = crypto.randomUUID();
+		const orphanUid = `orfanopw-${Date.now()}`;
+		await sql`insert into businesses (id, name, slug) values (${bizId}, 'orfao', ${"orfao-" + Date.now()})`;
+		await sql`insert into users (id, firebase_uid, business_id, email, name) values (${crypto.randomUUID()}, ${orphanUid}, ${bizId}, ${orphanUid + "@t.com"}, 'Orfao')`;
+		verifyMock.mockImplementation(async (token: string) => {
+			if (token !== "x" && token !== orphanUid) throw new Error("invalid");
+			return { uid: token, email: `${token}@t.com`, name: "P" };
+		});
+		await sql`delete from users where firebase_uid = ${orphanUid}`;
+		await sql`delete from businesses where id = ${bizId}`;
+		expect(
+			(
+				await app.request("/v1/services", {
+					method: "POST",
+					headers: {
+						"content-type": "application/json",
+						Authorization: `Bearer ${orphanUid}`,
+					},
+					body: JSON.stringify({ name: "X", duration_min: 30, price_cents: 0 }),
+				})
+			).status,
+		).toBe(404);
+	});
+
+	it("paywall: trial vencido → 402 em POST, GET livre, 404 sem user", async () => {
+		const h = authed(uid());
+		await createdUser(h);
+
+		// vence o trial do business desse user direto no banco de teste
+		const fbUid = h.Authorization.slice(7);
+		const meRow =
+			await sql`select business_id from users where firebase_uid = ${fbUid}`;
+		const bizId = meRow[0]!.business_id as string;
+		await sql`update businesses set subscription_status = 'trial', trial_ends_at = now() - interval '1 second' where id = ${bizId}`;
+
+		// GET continua livre
+		expect((await app.request("/v1/services", { headers: h })).status).toBe(
+			200,
+		);
+		// POST bloqueado com 402
+		const post = await app.request("/v1/services", {
+			method: "POST",
+			headers: { "content-type": "application/json", ...h },
+			body: JSON.stringify({ name: "X", duration_min: 30, price_cents: 0 }),
+		});
+		expect(post.status).toBe(402);
+		expect(((await post.json()) as { error: string }).error).toBe(
+			"assinatura necessária",
+		);
+		// PATCH também
+		expect(
+			(
+				await app.request("/v1/me", {
+					method: "PATCH",
+					headers: { "content-type": "application/json", ...h },
+					body: JSON.stringify({ business_name: "Novo" }),
+				})
+			).status,
+		).toBe(402);
+
+		// reativa conta
+		await sql`update businesses set subscription_status = 'active' where id = ${bizId}`;
+		expect(
+			(
+				await app.request("/v1/services", {
+					method: "POST",
+					headers: { "content-type": "application/json", ...h },
+					body: JSON.stringify({ name: "X", duration_min: 30, price_cents: 0 }),
+				})
+			).status,
+		).toBe(201);
+
+		// canceled → 402
+		await sql`update businesses set subscription_status = 'canceled' where id = ${bizId}`;
+		expect(
+			(
+				await app.request("/v1/clients", {
+					method: "POST",
+					headers: { "content-type": "application/json", ...h },
+					body: JSON.stringify({ name: "Y", phone: "14999990000" }),
+				})
+			).status,
+		).toBe(402);
+	});
+
 	it("PATCH /services/:id — edita, valida e 404", async () => {
 		const h = authed(uid());
 		await createdUser(h);

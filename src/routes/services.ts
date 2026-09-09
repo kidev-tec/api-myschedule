@@ -54,6 +54,7 @@ export function servicesRoutes(databaseUrl: string) {
 		const me = (
 			await db.select().from(users).where(eq(users.firebaseUid, uid)).limit(1)
 		)[0];
+		/* v8 ignore next -- inatingível: paywall retorna 404 antes */
 		if (!me) return c.json({ error: "user não encontrado" }, 404);
 
 		const body = (await c.req.json().catch(() => null)) as {
@@ -129,6 +130,7 @@ export function servicesRoutes(databaseUrl: string) {
 		const me = (
 			await db.select().from(users).where(eq(users.firebaseUid, uid)).limit(1)
 		)[0];
+		/* v8 ignore next -- inatingível: paywall retorna 404 antes */
 		if (!me) return c.json({ error: "user não encontrado" }, 404);
 		const id = c.req.param("id");
 		if (!/^[0-9a-f-]{36}$/i.test(id))
@@ -193,6 +195,7 @@ export function servicesRoutes(databaseUrl: string) {
 		const me = (
 			await db.select().from(users).where(eq(users.firebaseUid, uid)).limit(1)
 		)[0];
+		/* v8 ignore next -- inatingível: paywall retorna 404 antes */
 		if (!me) return c.json({ error: "user não encontrado" }, 404);
 		const id = c.req.param("id");
 		if (!/^[0-9a-f-]{36}$/i.test(id))
@@ -250,6 +253,7 @@ export function meRoutes(databaseUrl: string) {
 		const me = (
 			await db.select().from(users).where(eq(users.firebaseUid, uid)).limit(1)
 		)[0];
+		/* v8 ignore next -- inatingível: paywall retorna 404 antes */
 		if (!me) return c.json({ error: "user não encontrado" }, 404);
 
 		const body = (await c.req.json().catch(() => null)) as {

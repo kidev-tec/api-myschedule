@@ -419,7 +419,7 @@ describe("defesa-2 e caminhos de erro de banco", () => {
 	});
 
 	describe("validações de guarda (branches finais)", () => {
-		it("rota sem sync prévio (usuário não existe no Postgres) → 403", async () => {
+		it("rota sem sync prévio (usuário não existe no Postgres) → 404 (paywall gate)", async () => {
 			const u = `guarda-uid-${Date.now()}`;
 			const h = authed(u); // autentica, mas NÃO chama /auth/sync
 			const res = await app.request("/v1/appointments", {
@@ -427,9 +427,9 @@ describe("defesa-2 e caminhos de erro de banco", () => {
 				headers: h,
 				body: "{}",
 			});
-			expect(res.status).toBe(403);
+			expect(res.status).toBe(404);
 			expect(((await res.json()) as { error: string }).error).toContain(
-				"não sincronizado",
+				"user não encontrado",
 			);
 		});
 
@@ -657,7 +657,7 @@ describe("defesa-2 e caminhos de erro de banco", () => {
 				.appointment;
 		}
 
-		it("PATCH sem sync prévio → 403", async () => {
+		it("PATCH sem sync prévio → 404 (paywall gate)", async () => {
 			const u = `guarda-uid-${Date.now()}-patch403`;
 			const h = authed(u);
 			const res = await app.request(
@@ -668,7 +668,7 @@ describe("defesa-2 e caminhos de erro de banco", () => {
 					body: JSON.stringify({ status: "canceled" }),
 				},
 			);
-			expect(res.status).toBe(403);
+			expect(res.status).toBe(404);
 		});
 
 		it("PATCH cancelado SEM canceledReason → null (branch do ternário)", async () => {

@@ -55,6 +55,7 @@ export function workingHoursRoutes(databaseUrl: string) {
 		const me = (
 			await db.select().from(users).where(eq(users.firebaseUid, uid)).limit(1)
 		)[0];
+		/* v8 ignore next -- inatingível: paywall retorna 404 antes */
 		if (!me) return c.json({ error: "user não encontrado" }, 404);
 
 		const body = (await c.req.json().catch(() => null)) as {

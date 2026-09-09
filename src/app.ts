@@ -4,6 +4,7 @@
  */
 import { Hono } from "hono";
 import { firebaseAuthMiddleware } from "./middleware/auth.js";
+import { requireWritableFactory } from "./middleware/paywall.js";
 import { appointmentRoutes } from "./routes/appointments.js";
 import { authSyncRoutes } from "./routes/auth-sync.js";
 import { clientsRoutes } from "./routes/clients.js";
@@ -28,6 +29,22 @@ export function createApp(opts: {
 			opts.firebaseServiceAccountB64,
 		),
 	);
+
+	// Paywall (RF-14): trial vencido/canceled → 402 em tudo que escreve.
+	// GET /me, /services, /clients etc. continuam abertos (leitura livre);
+	// auth-sync é idempotente e precisa sempre passar.
+	const requireWritable = requireWritableFactory(opts.databaseUrl);
+	const readOnlyPaths = ["/v1/auth/sync"];
+	app.use("/v1/*", async (c, next) => {
+		if (
+			c.req.method === "GET" ||
+			readOnlyPaths.some((p) => c.req.path.startsWith(p))
+		) {
+			return next();
+		}
+		return requireWritable(c, next);
+	});
+
 	app.route("/v1", authSyncRoutes(opts.databaseUrl));
 	app.route("/v1", meRoutes(opts.databaseUrl));
 	app.route("/v1", servicesRoutes(opts.databaseUrl));

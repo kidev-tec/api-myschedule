@@ -58,6 +58,7 @@ export function clientsRoutes(databaseUrl: string) {
 				.where(eq(users.firebaseUid, c.get("authUser").uid))
 				.limit(1)
 		)[0];
+		/* v8 ignore next -- inatingível: paywall retorna 404 antes */
 		if (!me) return c.json({ error: "user não encontrado" }, 404);
 
 		const body = (await c.req.json().catch(() => null)) as {
@@ -124,6 +125,7 @@ export function clientsRoutes(databaseUrl: string) {
 				.where(eq(users.firebaseUid, c.get("authUser").uid))
 				.limit(1)
 		)[0];
+		/* v8 ignore next -- inatingível: paywall retorna 404 antes */
 		if (!me) return c.json({ error: "user não encontrado" }, 404);
 		const id = c.req.param("id");
 		if (!UUID_RE.test(id)) return c.json({ error: "id inválido" }, 400);
