@@ -122,6 +122,71 @@ export function servicesRoutes(databaseUrl: string) {
 		return c.json(serialize(row));
 	});
 
+	/** PATCH /services/:id — edita nome/duração/preço (disponibilidade = arquivar/recriar). */
+	routes.patch("/services/:id", async (c) => {
+		const authUser = c.get("authUser");
+		const uid = authUser.uid;
+		const me = (
+			await db.select().from(users).where(eq(users.firebaseUid, uid)).limit(1)
+		)[0];
+		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		const id = c.req.param("id");
+		if (!/^[0-9a-f-]{36}$/i.test(id))
+			return c.json({ error: "id inválido" }, 400);
+
+		const body = (await c.req.json().catch(() => null)) as {
+			name?: unknown;
+			duration_min?: unknown;
+			price_cents?: unknown;
+		} | null;
+
+		const updates: {
+			name?: string;
+			durationMin?: number;
+			priceCents?: number;
+		} = {};
+		if (body?.name !== undefined) {
+			if (
+				typeof body.name !== "string" ||
+				body.name.trim().length < 1 ||
+				body.name.trim().length > 120
+			)
+				return c.json({ error: "name deve ter 1..120 caracteres" }, 400);
+			updates.name = body.name.trim();
+		}
+		if (body?.duration_min !== undefined) {
+			if (
+				typeof body.duration_min !== "number" ||
+				body.duration_min < 5 ||
+				body.duration_min > 600
+			)
+				return c.json({ error: "duration_min deve ser 5..600" }, 400);
+			updates.durationMin = body.duration_min;
+		}
+		if (body?.price_cents !== undefined) {
+			if (typeof body.price_cents !== "number" || body.price_cents < 0)
+				return c.json({ error: "price_cents deve ser >= 0" }, 400);
+			updates.priceCents = body.price_cents;
+		}
+		if (Object.keys(updates).length === 0)
+			return c.json({ error: "nada para atualizar" }, 400);
+
+		const updated = await db
+			.update(services)
+			.set(updates)
+			.where(
+				and(
+					eq(services.id, id),
+					eq(services.businessId, me.businessId),
+					isNull(services.archivedAt),
+				),
+			)
+			.returning();
+		const upd = updated[0];
+		if (!upd) return c.json({ error: "serviço não encontrado" }, 404);
+		return c.json(serialize(upd));
+	});
+
 	routes.delete("/services/:id", async (c) => {
 		const authUser = c.get("authUser");
 		const uid = authUser.uid;

@@ -820,4 +820,136 @@ describe("/v1/clients", () => {
 			).status,
 		).toBe(404);
 	});
+
+	it("PATCH /services/:id — edita, valida e 404", async () => {
+		const h = authed(uid());
+		await createdUser(h);
+
+		// PATCH com ghost (user não sincronizado) → 404 do !me
+		{
+			const ghostUid = `ghost-patch-${Date.now()}`;
+			verifyMock.mockImplementation(async (token: string) => {
+				if (token !== h.Authorization.slice(7) && token !== ghostUid)
+					throw new Error("invalid");
+				return { uid: token, email: `${token}@t.com`, name: "Pro Teste" };
+			});
+			const ghost = { Authorization: `Bearer ${ghostUid}` };
+			expect(
+				(
+					await app.request(
+						"/v1/services/00000000-0000-4000-8000-000000000000",
+						{
+							method: "PATCH",
+							headers: { "content-type": "application/json", ...ghost },
+							body: JSON.stringify({ name: "X" }),
+						},
+					)
+				).status,
+			).toBe(404);
+		}
+
+		// cria serviço
+		const created = await app.request("/v1/services", {
+			method: "POST",
+			headers: { "content-type": "application/json", ...h },
+			body: JSON.stringify({
+				name: "Corte",
+				duration_min: 40,
+				price_cents: 5000,
+			}),
+		});
+		expect(created.status).toBe(201);
+		const svc = (await created.json()) as { id: string };
+
+		// edita duração pra 40 (agora válido: 5..600) e nome
+		const patched = await app.request(`/v1/services/${svc.id}`, {
+			method: "PATCH",
+			headers: { "content-type": "application/json", ...h },
+			body: JSON.stringify({ name: "Corte premium", duration_min: 45 }),
+		});
+		expect(patched.status).toBe(200);
+		const up = (await patched.json()) as { name: string; duration_min: number };
+		expect(up.name).toBe("Corte premium");
+		expect(up.duration_min).toBe(45);
+
+		// edita só o preço (branch price_cents no PATCH)
+		expect(
+			(
+				await app.request(`/v1/services/${svc.id}`, {
+					method: "PATCH",
+					headers: { "content-type": "application/json", ...h },
+					body: JSON.stringify({ price_cents: 6000 }),
+				})
+			).status,
+		).toBe(200);
+
+		// valida campos
+		expect(
+			(
+				await app.request(`/v1/services/${svc.id}`, {
+					method: "PATCH",
+					headers: { "content-type": "application/json", ...h },
+					body: JSON.stringify({ duration_min: 3 }),
+				})
+			).status,
+		).toBe(400);
+		// body não-JSON → json() falha → null → nada pra atualizar → 400
+		expect(
+			(
+				await app.request(`/v1/services/${svc.id}`, {
+					method: "PATCH",
+					headers: { "content-type": "application/json", ...h },
+					body: "{quebrado",
+				})
+			).status,
+		).toBe(400);
+		expect(
+			(
+				await app.request(`/v1/services/${svc.id}`, {
+					method: "PATCH",
+					headers: { "content-type": "application/json", ...h },
+					body: JSON.stringify({ name: "" }),
+				})
+			).status,
+		).toBe(400);
+		expect(
+			(
+				await app.request(`/v1/services/${svc.id}`, {
+					method: "PATCH",
+					headers: { "content-type": "application/json", ...h },
+					body: JSON.stringify({ price_cents: -1 }),
+				})
+			).status,
+		).toBe(400);
+		// nada pra atualizar
+		expect(
+			(
+				await app.request(`/v1/services/${svc.id}`, {
+					method: "PATCH",
+					headers: { "content-type": "application/json", ...h },
+					body: "{}",
+				})
+			).status,
+		).toBe(400);
+		// id malformado
+		expect(
+			(
+				await app.request("/v1/services/abc", {
+					method: "PATCH",
+					headers: { "content-type": "application/json", ...h },
+					body: JSON.stringify({ name: "X" }),
+				})
+			).status,
+		).toBe(400);
+		// serviço inexistente (uuid válido)
+		expect(
+			(
+				await app.request("/v1/services/00000000-0000-4000-8000-000000000000", {
+					method: "PATCH",
+					headers: { "content-type": "application/json", ...h },
+					body: JSON.stringify({ name: "X" }),
+				})
+			).status,
+		).toBe(404);
+	});
 });
