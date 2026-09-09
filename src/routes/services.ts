@@ -145,10 +145,39 @@ export function servicesRoutes(databaseUrl: string) {
 	return routes;
 }
 
-/** PATCH /me — renomeia o business do usuário logado. */
+/** GET/PATCH /me — lê/atualiza o business do usuário logado (nome + segmento). */
 export function meRoutes(databaseUrl: string) {
 	const db: Db = getDb(databaseUrl);
 	const routes = new Hono<AppEnv>();
+
+	routes.get("/me", async (c) => {
+		const authUser = c.get("authUser");
+		const me = (
+			await db
+				.select()
+				.from(users)
+				.where(eq(users.firebaseUid, authUser.uid))
+				.limit(1)
+		)[0];
+		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		const biz = (
+			await db
+				.select()
+				.from(businesses)
+				.where(eq(businesses.id, me.businessId))
+				.limit(1)
+		)[0];
+		/* v8 ignore next -- defensivo: user sempre tem business (FK NOT NULL + sync) */
+		if (!biz) return c.json({ error: "business não encontrado" }, 404);
+		return c.json({
+			id: biz.id,
+			name: biz.name,
+			business_type: biz.businessType,
+			timezone: biz.timezone,
+			subscription_status: biz.subscriptionStatus,
+			trial_ends_at: biz.trialEndsAt,
+		});
+	});
 
 	routes.patch("/me", async (c) => {
 		const authUser = c.get("authUser");
@@ -160,17 +189,44 @@ export function meRoutes(databaseUrl: string) {
 
 		const body = (await c.req.json().catch(() => null)) as {
 			business_name?: unknown;
+			business_type?: unknown;
 		} | null;
 		const businessName =
 			typeof body?.business_name === "string" ? body.business_name.trim() : "";
 		if (businessName.length < 1 || businessName.length > 120) {
 			return c.json({ error: "business_name obrigatório (1..120)" }, 400);
 		}
+		// Segmento: opcional; se vier, valida contra a whitelist de presets.
+		const SEGMENT_IDS = [
+			"beauty",
+			"barber",
+			"dental",
+			"medical",
+			"auto_detailing",
+			"pet_grooming",
+			"veterinary",
+			"mechanic",
+			"other",
+		] as const;
+		let businessType: string | undefined;
+		if (body?.business_type !== undefined) {
+			if (
+				typeof body.business_type !== "string" ||
+				!(SEGMENT_IDS as readonly string[]).includes(body.business_type)
+			) {
+				return c.json({ error: "business_type inválido" }, 400);
+			}
+			businessType = body.business_type;
+		}
 		await db
 			.update(businesses)
-			.set({ name: businessName })
+			.set({ name: businessName, ...(businessType ? { businessType } : {}) })
 			.where(eq(businesses.id, me.businessId));
-		return c.json({ ok: true, business_name: businessName });
+		return c.json({
+			ok: true,
+			business_name: businessName,
+			business_type: businessType ?? null,
+		});
 	});
 
 	return routes;

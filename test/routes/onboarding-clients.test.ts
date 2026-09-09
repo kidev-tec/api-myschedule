@@ -765,4 +765,59 @@ describe("/v1/clients", () => {
 			).status,
 		).toBe(404);
 	});
+
+	it("GET /me e PATCH business_type (válido, inválido, ausente)", async () => {
+		const h = authed(uid());
+		await createdUser(h);
+
+		// GET /me retorna business com business_type default 'beauty'
+		const meRes = await app.request("/v1/me", { headers: h });
+		expect(meRes.status).toBe(200);
+		const me = (await meRes.json()) as { business_type: string };
+		expect(me.business_type).toBe("beauty");
+
+		// PATCH com business_type válido
+		const ok = await app.request("/v1/me", {
+			method: "PATCH",
+			headers: { "content-type": "application/json", ...h },
+			body: JSON.stringify({
+				business_name: "Studio Novo",
+				business_type: "barber",
+			}),
+		});
+		expect(ok.status).toBe(200);
+		expect(((await ok.json()) as { business_type: string }).business_type).toBe(
+			"barber",
+		);
+
+		// PATCH com business_type inválido → 400
+		const bad = await app.request("/v1/me", {
+			method: "PATCH",
+			headers: { "content-type": "application/json", ...h },
+			body: JSON.stringify({
+				business_name: "Studio Novo",
+				business_type: "salao_de_festa",
+			}),
+		});
+		expect(bad.status).toBe(400);
+
+		// GET /me de ghost → 404
+		const ghostUid = `ghost7-${Date.now()}`;
+		verifyMock.mockImplementation(async (token: string) => {
+			if (token !== h.Authorization.slice(7) && token !== ghostUid)
+				throw new Error("invalid");
+			return { uid: token, email: `${token}@t.com`, name: "Pro Teste" };
+		});
+		const ghost = { Authorization: `Bearer ${ghostUid}` };
+		expect((await app.request("/v1/me", { headers: ghost })).status).toBe(404);
+		expect(
+			(
+				await app.request("/v1/me", {
+					method: "PATCH",
+					headers: { "content-type": "application/json", ...ghost },
+					body: JSON.stringify({ business_name: "X", business_type: "barber" }),
+				})
+			).status,
+		).toBe(404);
+	});
 });

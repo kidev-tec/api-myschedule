@@ -54,6 +54,11 @@ export const businesses = pgTable("businesses", {
 	id: uuid("id").defaultRandom().primaryKey(),
 	name: varchar("name", { length: 120 }).notNull(),
 	slug: varchar("slug", { length: 80 }).notNull().unique(),
+	/** Segmento do negócio: beauty, barber, dental, medical, auto_detailing,
+	 *  pet_grooming, veterinary, mechanic, other. Define preset visual/serviços no app. */
+	businessType: varchar("business_type", { length: 30 })
+		.notNull()
+		.default("beauty"),
 	timezone: varchar("timezone", { length: 40 })
 		.notNull()
 		.default("America/Sao_Paulo"),
