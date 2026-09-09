@@ -8,6 +8,7 @@ import { requireWritableFactory } from "./middleware/paywall.js";
 import { appointmentRoutes } from "./routes/appointments.js";
 import { authSyncRoutes } from "./routes/auth-sync.js";
 import { clientsRoutes } from "./routes/clients.js";
+import { publicBookingRoutes } from "./routes/public-booking.js";
 import { meRoutes, servicesRoutes } from "./routes/services.js";
 import { workingHoursRoutes } from "./routes/working-hours.js";
 import type { AppEnv } from "./types.js";
@@ -51,6 +52,9 @@ export function createApp(opts: {
 	app.route("/v1", workingHoursRoutes(opts.databaseUrl));
 	app.route("/v1", clientsRoutes(opts.databaseUrl));
 	app.route("/v1/appointments", appointmentRoutes(opts.databaseUrl));
+
+	// RF-07 — link público (sem Firebase auth; rotas /p/*)
+	app.route("/", publicBookingRoutes(opts.databaseUrl));
 
 	return app;
 }

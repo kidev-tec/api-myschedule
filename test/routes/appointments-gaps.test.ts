@@ -258,6 +258,7 @@ describe("defesa-2 e caminhos de erro de banco", () => {
         RETURN NEW;
       END;
       $$ LANGUAGE plpgsql`);
+		await sql.unsafe(`DROP TRIGGER IF EXISTS del_client_trig ON appointments`);
 		await sql.unsafe(`CREATE TRIGGER del_client_trig BEFORE INSERT ON appointments
       FOR EACH ROW EXECUTE FUNCTION rafole_del_client()`);
 

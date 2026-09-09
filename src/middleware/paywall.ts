@@ -13,6 +13,8 @@
 
 import { eq } from "drizzle-orm";
 import type { Context, Next } from "hono";
+
+// biome_ignore: middleware Hono usa Response | void como assinatura padrão
 import { type Db, getDb } from "../db/connection.js";
 import { businesses, users } from "../db/schema.js";
 import type { AppEnv } from "../types.js";
@@ -70,7 +72,7 @@ export function requireWritableFactory(databaseUrl: string) {
 	return async function requireWritable(
 		c: Context<AppEnv>,
 		next: Next,
-	): Promise<Response | void> {
+	): Promise<globalThis.Response | undefined> {
 		const db: Db = getDb(databaseUrl);
 		const gate = await loadBusinessGate(db, c.get("authUser").uid);
 		if (!gate) return c.json({ error: "user não encontrado" }, 404);
@@ -86,5 +88,6 @@ export function requireWritableFactory(databaseUrl: string) {
 		}
 		c.set("businessGate", gate);
 		await next();
+		return undefined;
 	};
 }
