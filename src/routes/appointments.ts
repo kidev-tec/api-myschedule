@@ -10,7 +10,7 @@
 import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { type Db, getDb } from "../db/connection.js";
-import { appointments, users } from "../db/schema.js";
+import { appointments, clients, services, users } from "../db/schema.js";
 import { overlaps } from "../domain/booking.js";
 import type { AppEnv } from "../types.js";
 
@@ -68,8 +68,24 @@ export function appointmentRoutes(databaseUrl: string) {
 			new Date(from.getTime() + 24 * 3600 * 1000);
 
 		const rows = await db
-			.select()
+			.select({
+				id: appointments.id,
+				startsAt: appointments.startsAt,
+				endsAt: appointments.endsAt,
+				status: appointments.status,
+				source: appointments.source,
+				clientId: appointments.clientId,
+				serviceId: appointments.serviceId,
+				userId: appointments.userId,
+				client_name: clients.name,
+				client_phone: clients.phoneE164,
+				service_name: services.name,
+				service_duration_min: services.durationMin,
+				service_price_cents: services.priceCents,
+			})
 			.from(appointments)
+			.leftJoin(clients, eq(appointments.clientId, clients.id))
+			.leftJoin(services, eq(appointments.serviceId, services.id))
 			.where(
 				and(
 					eq(appointments.businessId, user.businessId),
