@@ -270,6 +270,7 @@ export function publicBookingRoutes(databaseUrl: string) {
 	// ---- HTML da página pública (última, pra não engolir as rotas acima)
 	routes.get("/p/:slug", (c) => {
 		const slug = c.req.param("slug");
+		c.header("Cache-Control", "no-store, max-age=0");
 		return c.html(publicPageHtml(slug));
 	});
 
