@@ -305,6 +305,68 @@ describe("RF-07: link público de agendamento", () => {
 		).toBe(404);
 	});
 
+	it("GET /p/:slug/busy → intervalos ocupados do dia (para filtro de slots)", async () => {
+		const uid = `pub-busy-${Date.now()}`;
+		verifyMock.mockImplementation(async (token: string) => {
+			if (token !== uid) throw new Error("invalid");
+			return { uid, email: `${uid}@t.com`, name: "Pro Busy" };
+		});
+		const h = authed(uid);
+		const syncRes = await app.request("/v1/auth/sync", {
+			method: "POST",
+			headers: { "content-type": "application/json", ...h },
+			body: JSON.stringify({ name: "Pro Busy" }),
+		});
+		const synced = (await syncRes.json()) as { business?: { slug?: string } };
+		const slug = synced.business?.slug as string;
+		const svcRes = await app.request("/v1/services", {
+			method: "POST",
+			headers: { "content-type": "application/json", ...h },
+			body: JSON.stringify({ name: "B", duration_min: 30, price_cents: 0 }),
+		});
+		const svc = (await svcRes.json()) as { id: string };
+		const tomorrow = new Date(Date.now() + 86_400_000);
+		const ds = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
+
+		// dia sem agendamentos → busy vazio
+		const empty = await app.request(`/p/${slug}/busy?date=${ds}`);
+		expect(empty.status).toBe(200);
+		expect(((await empty.json()) as { busy: unknown[] }).busy).toHaveLength(0);
+
+		// cria um agendamento 09:00–09:30
+		const start = new Date(tomorrow);
+		start.setHours(9, 0, 0, 0);
+		const bookRes = await app.request(`/p/${slug}/book`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				name: "Busy Test",
+				phone: "14999997000",
+				service_id: svc.id,
+				starts_at: start.toISOString(),
+			}),
+		});
+		expect(bookRes.status).toBe(201);
+
+		const busyRes = await app.request(`/p/${slug}/busy?date=${ds}`);
+		expect(busyRes.status).toBe(200);
+		const { busy } = (await busyRes.json()) as {
+			busy: { start: string; end: string }[];
+		};
+		expect(busy).toHaveLength(1);
+		expect(new Date(busy[0]!.start).getHours()).toBe(9);
+		expect(new Date(busy[0]!.end).getHours()).toBe(9);
+		expect(new Date(busy[0]!.end).getMinutes()).toBe(30);
+
+		// validação: date inválida E date ausente (?? "" cai no NaN)
+		expect((await app.request(`/p/${slug}/busy?date=xxx`)).status).toBe(400);
+		expect((await app.request(`/p/${slug}/busy`)).status).toBe(400);
+		// slug inexistente
+		expect(
+			(await app.request("/p/nao-existe/busy?date=2026-01-01")).status,
+		).toBe(404);
+	});
+
 	it("info de slug inexistente → 404", async () => {
 		expect((await app.request("/p/nao-existe/info")).status).toBe(404);
 	});

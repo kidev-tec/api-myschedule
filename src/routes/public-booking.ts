@@ -13,7 +13,7 @@
  * responde 402 no book (leitura/info continua livre).
  */
 
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { type Db, getDb } from "../db/connection.js";
 import {
@@ -267,6 +267,39 @@ export function publicBookingRoutes(databaseUrl: string) {
 		);
 	});
 
+	// ---- intervalos ocupados do dia (pro filtro de slots client-side)
+	routes.get("/p/:slug/busy", async (c) => {
+		const slug = c.req.param("slug");
+		const loaded = await loadBySlug(db, slug);
+		if (!loaded) return c.json({ error: "link não encontrado" }, 404);
+
+		const dateStr = c.req.query("date") ?? "";
+		const dayStart = new Date(`${dateStr}T00:00:00`);
+		if (Number.isNaN(dayStart.getTime())) {
+			return c.json({ error: "date inválida (YYYY-MM-DD)" }, 400);
+		}
+		const dayEnd = new Date(dayStart.getTime() + 86_400_000);
+
+		const rows = await db
+			.select({ startsAt: appointments.startsAt, endsAt: appointments.endsAt })
+			.from(appointments)
+			.where(
+				and(
+					eq(appointments.businessId, loaded.biz.id),
+					eq(appointments.userId, loaded.pro.id),
+					gte(appointments.startsAt, dayStart),
+					lte(appointments.startsAt, dayEnd),
+					sql`${appointments.status} IN ('pending', 'confirmed')`,
+				),
+			);
+		return c.json({
+			busy: rows.map((r) => ({
+				start: r.startsAt.toISOString(),
+				end: r.endsAt.toISOString(),
+			})),
+		});
+	});
+
 	// ---- HTML da página pública (última, pra não engolir as rotas acima)
 	routes.get("/p/:slug", (c) => {
 		const slug = c.req.param("slug");
@@ -307,6 +340,7 @@ button:disabled{opacity:.5}
 .slots{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
 .slot{padding:10px 12px;border:1.5px solid #ddd;border-radius:10px;cursor:pointer;font-size:.9rem}
 .slot.sel{border-color:var(--p);background:#FDF0F4;font-weight:700}
+.slot.off{opacity:.35;text-decoration:line-through;cursor:not-allowed;pointer-events:none}
 </style>
 </head>
 <body>
@@ -376,13 +410,13 @@ function renderForm(msg){
 }
 // re-render de erro NÃO perde o horário escolhido
 let PICKED_KEEP = false;
-window.pick = id => { SEL=id; renderForm(); };
+window.pick = id => { SEL=id; window.PICKED=null; renderForm(); };
 
 async function loadSlots(keepPicked){
-  // slots de 15min entre abrir/fechar do dia, checando conflitos no book
+  // slots de 15min entre abrir/fechar do dia, já filtrando ocupados pela
+  // duração do serviço escolhido (GET /p/:slug/busy)
   const slots = document.getElementById('slots');
   slots.innerHTML = '<span class="mut">carregando…</span>';
-  // info.working_hours: weekday 0-6
   const wd = DAY.getDay();
   const h = INFO.working_hours.find(x=>x.weekday===wd);
   if(!h){ slots.innerHTML='<span class="mut">fechado neste dia</span>'; return; }
@@ -393,18 +427,38 @@ async function loadSlots(keepPicked){
     const d = new Date(DAY); d.setHours(Math.floor(m/60), m%60, 0, 0);
     if(d > new Date()) out.push(d);
   }
+  // duração do serviço selecionado (fallback 30min se ainda não escolheu)
+  const svc = INFO.services.find(x=>x.id===SEL);
+  const dur = (svc?svc.duration_min:30) * 60000;
+  let busy = [];
+  try{
+    const ds = DAY.getFullYear()+'-'+String(DAY.getMonth()+1).padStart(2,'0')+'-'+String(DAY.getDate()).padStart(2,'0');
+    const r = await fetch('/p/'+SLUG+'/busy?date='+ds);
+    if(r.ok){ busy = (await r.json()).busy; }
+  }catch(e){}
+  const conflicts = d => busy.some(b =>
+    d.getTime() < new Date(b.end).getTime() &&
+    d.getTime()+dur > new Date(b.start).getTime());
   slots.innerHTML='';
   out.forEach(d=>{
     const el=document.createElement('div'); el.className='slot';
     el.textContent=d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+    if(conflicts(d)) el.classList.add('off');
     const isPicked = window.PICKED && d.getTime()===window.PICKED.getTime();
-    if(isPicked && keepPicked) el.classList.add('sel');
-    el.onclick=()=>{ window.PICKED=d; [...slots.children].forEach(x=>x.classList.remove('sel')); el.classList.add('sel'); };
+    if(isPicked && keepPicked && !el.classList.contains('off')) el.classList.add('sel');
+    el.onclick=()=>{
+      if(el.classList.contains('off')) return;
+      window.PICKED=d; [...slots.children].forEach(x=>x.classList.remove('sel')); el.classList.add('sel');
+    };
     slots.appendChild(el);
   });
-  // slot escolhido sumiu (foi ocupado)? avisa
-  if(window.PICKED && !out.some(d=>d.getTime()===window.PICKED.getTime())){
-    window.PICKED = null;
+  // slot escolhido virou indisponível (trocou serviço / foi ocupado)
+  if(window.PICKED){
+    const still = out.some(d=>d.getTime()===window.PICKED.getTime()) && !conflicts(window.PICKED);
+    if(!still) window.PICKED = null;
+  }
+  if(out.length>0 && out.every(d=>conflicts(d))){
+    slots.innerHTML='<span class="mut">sem horários livres pra este serviço neste dia — escolhe outro dia ou serviço</span>';
   }
 }
 
