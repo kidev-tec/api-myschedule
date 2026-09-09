@@ -15,7 +15,7 @@
     "typecheck": "tsc -p tsconfig.test.json --noEmit",
     "validate:pr": "biome check src/ test/ && tsc -p tsconfig.test.json --noEmit && vitest run",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx src/db/migrate.ts",
+    "db:migrate": "node scripts/run-migrations.mjs",
     "db:studio": "drizzle-kit studio",
     "prepare": "husky"
   },
