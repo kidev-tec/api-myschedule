@@ -240,6 +240,7 @@ export function meRoutes(databaseUrl: string) {
 		return c.json({
 			id: biz.id,
 			name: biz.name,
+			slug: biz.slug,
 			business_type: biz.businessType,
 			timezone: biz.timezone,
 			subscription_status: biz.subscriptionStatus,
