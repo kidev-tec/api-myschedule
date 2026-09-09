@@ -329,6 +329,9 @@ async function init(){
 
 function brl(c){return (c/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}
 
+// snapshot do que o usuário já digitou (sobrevive a re-render de erro)
+let NAME_DRAFT = '', PHONE_DRAFT = '';
+
 function renderForm(msg){
   const days = [];
   for(let i=0;i<14;i++){
@@ -344,27 +347,37 @@ function renderForm(msg){
       \${INFO.services.map(s=>\`<div class="svc\${SEL===s.id?' sel':''}" onclick="pick('\${s.id}')">
         <span>\${s.name} · \${s.duration_min}min</span><b>\${brl(s.price_cents)}</b></div>\`).join('')}
       <label>2. Teus dados</label>
-      <input id="nm" placeholder="Teu nome">
-      <input id="ph" placeholder="WhatsApp (com DDD)" inputmode="tel" style="margin-top:8px">
+      <input id="nm" placeholder="Teu nome" value="\${NAME_DRAFT}">
+      <input id="ph" placeholder="WhatsApp (com DDD)" inputmode="tel" style="margin-top:8px" value="\${PHONE_DRAFT}">
       <label>3. Escolhe o dia</label>
       <div class="slots" id="days"></div>
       <label>4. Horários livres (\${DAY?DAY.toLocaleDateString('pt-BR'):'—'})</label>
       <div class="slots" id="slots"><span class="mut">escolhe um dia acima</span></div>
       <button id="go" onclick="book()">Confirmar agendamento</button>
     </div>\`;
+  // mantém o que estava digitado a cada re-render
+  const nm = document.getElementById('nm');
+  const ph = document.getElementById('ph');
+  nm.addEventListener('input', () => { NAME_DRAFT = nm.value; });
+  ph.addEventListener('input', () => { PHONE_DRAFT = ph.value; });
+
   const dw = document.getElementById('days');
   days.forEach(d=>{
     const el = document.createElement('div');
     el.className='slot';
+    if(DAY && d.toDateString()===DAY.toDateString()) el.classList.add('sel');
     el.textContent = d.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'});
-    el.onclick = ()=>{ DAY=d; [...dw.children].forEach(x=>x.classList.remove('sel')); el.classList.add('sel'); loadSlots(); };
+    el.onclick = ()=>{ DAY=d; window.PICKED=null; [...dw.children].forEach(x=>x.classList.remove('sel')); el.classList.add('sel'); loadSlots(); };
     dw.appendChild(el);
   });
   if(msg){ const e=document.getElementById('err'); e.textContent=msg; e.style.display='block'; }
+  if(DAY) loadSlots(PICKED_KEEP);
 }
+// re-render de erro NÃO perde o horário escolhido
+let PICKED_KEEP = false;
 window.pick = id => { SEL=id; renderForm(); };
 
-async function loadSlots(){
+async function loadSlots(keepPicked){
   // slots de 15min entre abrir/fechar do dia, checando conflitos no book
   const slots = document.getElementById('slots');
   slots.innerHTML = '<span class="mut">carregando…</span>';
@@ -383,9 +396,15 @@ async function loadSlots(){
   out.forEach(d=>{
     const el=document.createElement('div'); el.className='slot';
     el.textContent=d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+    const isPicked = window.PICKED && d.getTime()===window.PICKED.getTime();
+    if(isPicked && keepPicked) el.classList.add('sel');
     el.onclick=()=>{ window.PICKED=d; [...slots.children].forEach(x=>x.classList.remove('sel')); el.classList.add('sel'); };
     slots.appendChild(el);
   });
+  // slot escolhido sumiu (foi ocupado)? avisa
+  if(window.PICKED && !out.some(d=>d.getTime()===window.PICKED.getTime())){
+    window.PICKED = null;
+  }
 }
 
 async function book(){
@@ -401,14 +420,28 @@ async function book(){
       body: JSON.stringify({ name:nm, phone:ph, service_id:SEL, starts_at:window.PICKED.toISOString() })
     });
     const d = await r.json();
-    if(!r.ok){ btn.disabled=false; renderForm(d.error||'erro'); return; }
+    if(!r.ok){
+      btn.disabled=false;
+      const e=document.getElementById('err');
+      e.textContent = d.error||'erro';
+      e.style.display='block';
+      // conflito/ocupado: o slot escolhido acabou de ser tomado → recarrega
+      // os horários do dia (mantém nome/telefone/serviço preenchidos)
+      if(r.status===409 && DAY){ window.PICKED=null; PICKED_KEEP=false; loadSlots(); }
+      return;
+    }
     const when = new Date(d.starts_at).toLocaleString('pt-BR',{weekday:'long',day:'2-digit',month:'long',hour:'2-digit',minute:'2-digit'});
     app.innerHTML = \`<div class="ok card"><div class="big">✅</div>
       <h1>Horário agendado!</h1>
       <p class="mut">\${d.service} em \${d.business}</p>
       <p style="margin-top:10px;font-weight:700">\${when}</p>
       <p class="mut" style="margin-top:10px">Te esperamos! Chega na hora 😉</p></div>\`;
-  }catch(err){ btn.disabled=false; renderForm('sem conexão, tenta de novo'); }
+  }catch(err){
+    btn.disabled=false;
+    const e=document.getElementById('err');
+    e.textContent='sem conexão, tenta de novo';
+    e.style.display='block';
+  }
 }
 </script>
 </body>
