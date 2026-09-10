@@ -405,7 +405,8 @@ button{width:100%;padding:14px;border:0;border-radius:12px;background:var(--p);c
 button:disabled{opacity:.5}
 .err{background:#FDECEC;color:#8B1E33;padding:10px;border-radius:10px;margin:10px 0;font-size:.9rem;display:none}
 .ok{text-align:center;padding:30px 10px}
-.ics-btn{display:block;margin:18px auto 0;padding:12px 18px;background:#fff;border:2px solid var(--p);color:var(--p);border-radius:12px;text-decoration:none;font-weight:700;max-width:280px}
+.ics-btn{display:inline-block;padding:12px 18px;background:#fff;border:2px solid var(--p);color:var(--p);border-radius:12px;text-decoration:none;font-weight:700}
+.ics-btn.gcal{border-color:#1a73e8;color:#1a73e8}
 .ok .big{font-size:3rem}
 .slots{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
 .slot{padding:10px 12px;border:1.5px solid #ddd;border-radius:10px;cursor:pointer;font-size:.9rem}
@@ -433,6 +434,20 @@ async function init(){
 }
 
 function brl(c){return (c/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}
+
+// link "Adicionar ao Google Calendar" — URL TEMPLATE, sem OAuth nem API
+function gcalUrl(appt){
+  const p = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: \`\${appt.service} em \${appt.business}\`,
+    dates: \`\${toGcalDate(new Date(appt.starts_at))}/\${toGcalDate(new Date(appt.ends_at))}\`,
+    details: 'Agendamento feito pelo link da Minha Agenda'
+  });
+  return 'https://calendar.google.com/calendar/render?' + p.toString();
+}
+function toGcalDate(d){
+  return d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0') + 'T' + String(d.getHours()).padStart(2,'0') + String(d.getMinutes()).padStart(2,'0') + '00';
+}
 
 // snapshot do que o usuário já digitou (sobrevive a re-render de erro)
 let NAME_DRAFT = '', PHONE_DRAFT = '';
@@ -560,7 +575,10 @@ async function book(){
       <h1>Horário agendado!</h1>
       <p class="mut">\${d.service} em \${d.business}</p>
       <p style="margin-top:10px;font-weight:700">\${when}</p>
-      <a class="ics-btn" href="/p/\${SLUG}/ics/\${d.id}">📅 Salvar na minha agenda</a>
+      <div style="display:flex;gap:10px;justify-content:center;margin-top:18px;flex-wrap:wrap">
+        <a class="ics-btn" href="/p/\${SLUG}/ics/\${d.id}">📅 Salvar no meu celular</a>
+        <a class="ics-btn gcal" target="_blank" href="\${gcalUrl(d)}">🗓️ Adicionar ao Google Calendar</a>
+      </div>
       <p class="mut" style="margin-top:10px">Toque acima pra teu celular te lembrar do horário. Te esperamos! 😉</p></div>\`;
   }catch(err){
     btn.disabled=false;
