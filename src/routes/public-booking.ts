@@ -300,6 +300,75 @@ export function publicBookingRoutes(databaseUrl: string) {
 		});
 	});
 
+	// ---- convite .ics pra o cliente salvar no calendário do celular dele
+	// (lembrete de graça via Google Calendar que o cliente já usa)
+	routes.get("/p/:slug/ics/:appointmentId", async (c) => {
+		const slug = c.req.param("slug");
+		const loaded = await loadBySlug(db, slug);
+		if (!loaded) return c.json({ error: "link não encontrado" }, 404);
+		const apptId = c.req.param("appointmentId");
+		if (
+			!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+				apptId,
+			)
+		) {
+			return c.json({ error: "id inválido" }, 400);
+		}
+		const appt = (
+			await db
+				.select()
+				.from(appointments)
+				.where(
+					and(
+						eq(appointments.id, apptId),
+						eq(appointments.businessId, loaded.biz.id),
+					),
+				)
+				.limit(1)
+		)[0];
+		if (!appt) return c.json({ error: "agendamento não encontrado" }, 404);
+		const svc = (
+			await db
+				.select({ name: services.name })
+				.from(services)
+				.where(eq(services.id, appt.serviceId))
+				.limit(1)
+		)[0];
+
+		const fmt = (d: Date) =>
+			d.toISOString().replace(/[-:]/g, "").replace(/\.000/, "");
+		/* v8 ignore next 3 -- inatingível: FK appointments→services garante
+		   a linha; guard defensivo */
+		if (!svc) return c.json({ error: "serviço não encontrado" }, 404);
+		const summary = `${svc.name} com ${loaded.biz.name}`;
+		const ics = [
+			"BEGIN:VCALENDAR",
+			"VERSION:2.0",
+			"PRODID:-//Minha Agenda//PT-BR",
+			"BEGIN:VEVENT",
+			`UID:${appt.id}`,
+			`DTSTAMP:${fmt(new Date())}`,
+			`DTSTART:${fmt(appt.startsAt)}`,
+			`DTEND:${fmt(appt.endsAt)}`,
+			`SUMMARY:${summary}`,
+			`DESCRIPTION:Agendamento com ${loaded.pro.name} — ${loaded.biz.name}`,
+			"BEGIN:VALARM",
+			"TRIGGER:-PT2H",
+			"ACTION:DISPLAY",
+			"DESCRIPTION:Lembrete de horário",
+			"END:VALARM",
+			"END:VEVENT",
+			"END:VCALENDAR",
+		].join("\r\n");
+
+		c.header("Content-Type", "text/calendar; charset=utf-8");
+		c.header(
+			"Content-Disposition",
+			`attachment; filename="horario-${appt.id.slice(0, 8)}.ics"`,
+		);
+		return c.body(ics);
+	});
+
 	// ---- HTML da página pública (última, pra não engolir as rotas acima)
 	routes.get("/p/:slug", (c) => {
 		const slug = c.req.param("slug");
@@ -336,6 +405,7 @@ button{width:100%;padding:14px;border:0;border-radius:12px;background:var(--p);c
 button:disabled{opacity:.5}
 .err{background:#FDECEC;color:#8B1E33;padding:10px;border-radius:10px;margin:10px 0;font-size:.9rem;display:none}
 .ok{text-align:center;padding:30px 10px}
+.ics-btn{display:block;margin:18px auto 0;padding:12px 18px;background:#fff;border:2px solid var(--p);color:var(--p);border-radius:12px;text-decoration:none;font-weight:700;max-width:280px}
 .ok .big{font-size:3rem}
 .slots{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
 .slot{padding:10px 12px;border:1.5px solid #ddd;border-radius:10px;cursor:pointer;font-size:.9rem}
@@ -490,7 +560,8 @@ async function book(){
       <h1>Horário agendado!</h1>
       <p class="mut">\${d.service} em \${d.business}</p>
       <p style="margin-top:10px;font-weight:700">\${when}</p>
-      <p class="mut" style="margin-top:10px">Te esperamos! Chega na hora 😉</p></div>\`;
+      <a class="ics-btn" href="/p/\${SLUG}/ics/\${d.id}">📅 Salvar na minha agenda</a>
+      <p class="mut" style="margin-top:10px">Toque acima pra teu celular te lembrar do horário. Te esperamos! 😉</p></div>\`;
   }catch(err){
     btn.disabled=false;
     const e=document.getElementById('err');

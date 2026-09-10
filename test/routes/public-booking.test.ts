@@ -367,6 +367,89 @@ describe("RF-07: link público de agendamento", () => {
 		).toBe(404);
 	});
 
+	it("GET /p/:slug/ics/:id → convite VCALENDAR do agendamento", async () => {
+		const uid = `pub-ics-${Date.now()}`;
+		verifyMock.mockImplementation(async (token: string) => {
+			if (token !== uid) throw new Error("invalid");
+			return { uid, email: `${uid}@t.com`, name: "Pro ICS" };
+		});
+		const h = authed(uid);
+		const syncRes = await app.request("/v1/auth/sync", {
+			method: "POST",
+			headers: { "content-type": "application/json", ...h },
+			body: JSON.stringify({ name: "Pro ICS" }),
+		});
+		const synced = (await syncRes.json()) as { business?: { slug?: string } };
+		const slug = synced.business?.slug as string;
+		const svcRes = await app.request("/v1/services", {
+			method: "POST",
+			headers: { "content-type": "application/json", ...h },
+			body: JSON.stringify({
+				name: "Corte ICS",
+				duration_min: 30,
+				price_cents: 0,
+			}),
+		});
+		const svc = (await svcRes.json()) as { id: string };
+		const start = new Date(Date.now() + 86_400_000);
+		const bookRes = await app.request(`/p/${slug}/book`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				name: "Cliente ICS",
+				phone: "14999996000",
+				service_id: svc.id,
+				starts_at: start.toISOString(),
+			}),
+		});
+		const booking = (await bookRes.json()) as { id: string };
+
+		const res = await app.request(`/p/${slug}/ics/${booking.id}`);
+		expect(res.status).toBe(200);
+		expect(res.headers.get("content-type")).toContain("text/calendar");
+		const body = await res.text();
+		expect(body).toContain("BEGIN:VCALENDAR");
+		expect(body).toContain("BEGIN:VEVENT");
+		expect(body).toContain(`UID:${booking.id}`);
+		expect(body).toContain("Corte ICS com Pro ICS");
+		expect(body).toContain("BEGIN:VALARM");
+
+		// slug inexistente → 404
+		expect((await app.request(`/p/nao-existe/ics/${booking.id}`)).status).toBe(
+			404,
+		);
+		// slug inexistente → 404
+		expect((await app.request(`/p/nao-existe/ics/${booking.id}`)).status).toBe(
+			404,
+		);
+		// serviço arquivado depois do booking → .ics continua funcionando
+		// (o cliente precisa do convite mesmo se o prof. arquivar o serviço)
+		await sql`update services set archived_at = now() where id = ${svc.id}`;
+		expect((await app.request(`/p/${slug}/ics/${booking.id}`)).status).toBe(
+			200,
+		);
+		// id inválido → 400
+		expect((await app.request(`/p/${slug}/ics/nao-uuid`)).status).toBe(400);
+		// agendamento de OUTRO business → 404 (não vaza por slug diferente)
+		const otherUid = `pub-ics2-${Date.now()}`;
+		verifyMock.mockImplementation(async (token: string) => {
+			if (token !== otherUid) throw new Error("invalid");
+			return { uid: otherUid, email: `${otherUid}@t.com`, name: "Pro ICS2" };
+		});
+		const otherSync = await app.request("/v1/auth/sync", {
+			method: "POST",
+			headers: { "content-type": "application/json", ...authed(otherUid) },
+			body: JSON.stringify({ name: "Pro ICS2" }),
+		});
+		const otherBiz = (await otherSync.json()) as {
+			business?: { slug?: string };
+		};
+		expect(
+			(await app.request(`/p/${otherBiz.business?.slug}/ics/${booking.id}`))
+				.status,
+		).toBe(404);
+	});
+
 	it("info de slug inexistente → 404", async () => {
 		expect((await app.request("/p/nao-existe/info")).status).toBe(404);
 	});

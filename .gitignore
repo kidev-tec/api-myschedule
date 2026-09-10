@@ -6,3 +6,4 @@ data/
 .env.*
 *.local
 .DS_Store
+public/apks/*.apk
