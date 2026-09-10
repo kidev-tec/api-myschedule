@@ -10,6 +10,7 @@ import { requireWritableFactory } from "./middleware/paywall.js";
 import { appointmentRoutes } from "./routes/appointments.js";
 import { authSyncRoutes } from "./routes/auth-sync.js";
 import { clientsRoutes } from "./routes/clients.js";
+import { docsRoutes } from "./routes/docs.js";
 import { gcalRoutes } from "./routes/gcal.js";
 import { publicBookingRoutes } from "./routes/public-booking.js";
 import { meRoutes, servicesRoutes } from "./routes/services.js";
@@ -72,6 +73,9 @@ export function createApp(opts: {
 
 	// RF-08 — Google Calendar (authed; callback é público por natureza)
 	app.route("/v1", gcalRoutes(opts.databaseUrl));
+
+	// Docs — OpenAPI 3.1 + Scalar UI (público)
+	app.route("/", docsRoutes());
 	app.use(
 		"/apks/*",
 		serveStatic({
