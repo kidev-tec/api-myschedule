@@ -12,6 +12,7 @@ import { Hono } from "hono";
 import { type Db, getDb } from "../db/connection.js";
 import { appointments, clients, services, users } from "../db/schema.js";
 import { overlaps } from "../domain/booking.js";
+import { mirrorToCalendar } from "../domain/gcal-mirror.js";
 import type { AppEnv } from "../types.js";
 
 async function requireUser(db: Db, firebaseUid: string) {
@@ -285,6 +286,17 @@ export function appointmentRoutes(databaseUrl: string) {
 				.set(patch)
 				.where(eq(appointments.id, id))
 				.returning();
+
+			// RF-08: espelha no Google Calendar do business (fire-and-forget:
+			// falha de calendar não falha o PATCH). mirrorToCalendar decide
+			// sozinho: cria (confirmado), atualiza (remarcado), remove (cancelado).
+			/* v8 ignore next 3 -- defensivo: UPDATE..RETURNING nunca é vazio */
+			if (updated) {
+				mirrorToCalendar(databaseUrl, updated.id).catch((e) =>
+					console.error("[gcal] espelho falhou:", e),
+				);
+			}
+
 			return c.json({ appointment: updated });
 		} catch (err) {
 			if (pgErrorCode(err) === "23P01") {

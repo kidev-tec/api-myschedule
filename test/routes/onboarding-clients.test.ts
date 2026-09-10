@@ -842,8 +842,8 @@ describe("/v1/clients", () => {
 		// user sincronizado mas business sumiu (caso defensivo) → 404
 		const bizId = crypto.randomUUID();
 		const orphanUid = `orfanopw-${Date.now()}`;
-		await sql`insert into businesses (id, name, slug) values (${bizId}, 'orfao', ${"orfao-" + Date.now()})`;
-		await sql`insert into users (id, firebase_uid, business_id, email, name) values (${crypto.randomUUID()}, ${orphanUid}, ${bizId}, ${orphanUid + "@t.com"}, 'Orfao')`;
+		await sql`insert into businesses (id, name, slug) values (${bizId}, 'orfao', ${`orfao-${Date.now()}`})`;
+		await sql`insert into users (id, firebase_uid, business_id, email, name) values (${crypto.randomUUID()}, ${orphanUid}, ${bizId}, ${`${orphanUid}@t.com`}, 'Orfao')`;
 		verifyMock.mockImplementation(async (token: string) => {
 			if (token !== "x" && token !== orphanUid) throw new Error("invalid");
 			return { uid: token, email: `${token}@t.com`, name: "P" };
@@ -872,7 +872,7 @@ describe("/v1/clients", () => {
 		const fbUid = h.Authorization.slice(7);
 		const meRow =
 			await sql`select business_id from users where firebase_uid = ${fbUid}`;
-		const bizId = meRow[0]!.business_id as string;
+		const bizId = meRow[0]?.business_id as string;
 		await sql`update businesses set subscription_status = 'trial', trial_ends_at = now() - interval '1 second' where id = ${bizId}`;
 
 		// GET continua livre

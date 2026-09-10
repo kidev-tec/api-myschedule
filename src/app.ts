@@ -10,6 +10,7 @@ import { requireWritableFactory } from "./middleware/paywall.js";
 import { appointmentRoutes } from "./routes/appointments.js";
 import { authSyncRoutes } from "./routes/auth-sync.js";
 import { clientsRoutes } from "./routes/clients.js";
+import { gcalRoutes } from "./routes/gcal.js";
 import { publicBookingRoutes } from "./routes/public-booking.js";
 import { meRoutes, servicesRoutes } from "./routes/services.js";
 import { versionRoutes } from "./routes/version.js";
@@ -25,20 +26,27 @@ export function createApp(opts: {
 
 	app.get("/health", (c) => c.json({ ok: true, ts: new Date().toISOString() }));
 
-	// Tudo abaixo exige ID token Firebase válido
-	app.use(
-		"/v1/*",
-		firebaseAuthMiddleware(
+	// Tudo abaixo exige ID token Firebase válido, EXCETO o callback do
+	// Google Calendar (Google chama sem ID token; a chamada é autenticada
+	// pelo state=uid e o código de autorização de uso único).
+	const publicPaths = ["/v1/gcal/callback"];
+	app.use("/v1/*", async (c, next) => {
+		if (publicPaths.some((p) => c.req.path.startsWith(p))) {
+			return next();
+		}
+		return firebaseAuthMiddleware(
 			opts.firebaseProjectId,
 			opts.firebaseServiceAccountB64,
-		),
-	);
+		)(c as never, next);
+	});
 
 	// Paywall (RF-14): trial vencido/canceled → 402 em tudo que escreve.
 	// GET /me, /services, /clients etc. continuam abertos (leitura livre);
 	// auth-sync é idempotente e precisa sempre passar.
 	const requireWritable = requireWritableFactory(opts.databaseUrl);
-	const readOnlyPaths = ["/v1/auth/sync"];
+	// gcal/callback é público por natureza (Google chama sem ID token);
+	// autenticação da chamada vem pelo parâmetro state (uid do business).
+	const readOnlyPaths = ["/v1/auth/sync", "/v1/gcal/callback"];
 	app.use("/v1/*", async (c, next) => {
 		if (
 			c.req.method === "GET" ||
@@ -61,6 +69,9 @@ export function createApp(opts: {
 
 	// Updater — versão do app + download do APK (sem auth)
 	app.route("/", versionRoutes());
+
+	// RF-08 — Google Calendar (authed; callback é público por natureza)
+	app.route("/v1", gcalRoutes(opts.databaseUrl));
 	app.use(
 		"/apks/*",
 		serveStatic({

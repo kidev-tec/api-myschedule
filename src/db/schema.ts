@@ -66,6 +66,9 @@ export const businesses = pgTable("businesses", {
 		.notNull()
 		.default("trial"),
 	trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
+	// RF-08: Google Calendar do business (refresh token OAuth, 1 prof/MVP)
+	gcalRefreshToken: text("gcal_refresh_token"),
+	gcalConnectedAt: timestamp("gcal_connected_at", { withTimezone: true }),
 	createdAt: timestamp("created_at", { withTimezone: true })
 		.notNull()
 		.defaultNow(),
@@ -165,6 +168,8 @@ export const appointments = pgTable(
 		status: appointmentStatusEnum("status").notNull().default("pending"),
 		source: appointmentSourceEnum("source").notNull().default("app"),
 		canceledReason: text("canceled_reason"),
+		// RF-08: id do evento espelhado no Google Calendar do business
+		gcalEventId: text("gcal_event_id"),
 		createdByUserId: uuid("created_by_user_id").references(() => users.id),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.notNull()
