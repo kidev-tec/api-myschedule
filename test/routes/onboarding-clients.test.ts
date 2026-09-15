@@ -71,20 +71,21 @@ describe("PATCH /v1/me", () => {
 	it("renomeia o business do usuário", async () => {
 		const h = authed(uid());
 		await createdUser(h);
+		const novoNome = `Studio Novo ${Date.now()}`; // único: nome+segmento agora é UNIQUE
 		const res = await app.request("/v1/me", {
 			method: "PATCH",
 			headers: { "content-type": "application/json", ...h },
-			body: JSON.stringify({ business_name: "Studio Novo" }),
+			body: JSON.stringify({ business_name: novoNome }),
 		});
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as { business_name: string };
-		expect(body.business_name).toBe("Studio Novo");
+		expect(body.business_name).toBe(novoNome);
 		const rows = await sql`
 			SELECT b.name FROM businesses b
 			JOIN users u ON u.business_id = b.id
 			WHERE u.firebase_uid = ${h.Authorization.slice(7)}`;
 		expect(rows.length).toBe(1);
-		expect(rows[0]?.name).toBe("Studio Novo");
+		expect(rows[0]?.name).toBe(novoNome);
 	});
 
 	it("400 sem business_name", async () => {
@@ -96,6 +97,29 @@ describe("PATCH /v1/me", () => {
 			body: JSON.stringify({ business_name: "   " }),
 		});
 		expect(res.status).toBe(400);
+	});
+
+	it("409 quando outro business no mesmo segmento já tem o nome", async () => {
+		// cria business A com nome X (beauty)
+		const hA = authed(uid());
+		await createdUser(hA);
+		const nome = `Duplicado ${Date.now()}`;
+		await app.request("/v1/me", {
+			method: "PATCH",
+			headers: { "content-type": "application/json", ...hA },
+			body: JSON.stringify({ business_name: nome }),
+		});
+		// business B tenta o mesmo nome no mesmo segmento → 409
+		const hB = authed(uid());
+		await createdUser(hB);
+		const res = await app.request("/v1/me", {
+			method: "PATCH",
+			headers: { "content-type": "application/json", ...hB },
+			body: JSON.stringify({ business_name: nome.toUpperCase() }), // case-insensitive
+		});
+		expect(res.status).toBe(409);
+		const body = (await res.json()) as { error: string };
+		expect(body.error).toContain("Já existe");
 	});
 });
 
@@ -781,7 +805,7 @@ describe("/v1/clients", () => {
 			method: "PATCH",
 			headers: { "content-type": "application/json", ...h },
 			body: JSON.stringify({
-				business_name: "Studio Novo",
+				business_name: `Studio Novo ${Date.now()}`,
 				business_type: "barber",
 			}),
 		});
