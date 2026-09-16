@@ -34,9 +34,15 @@ export function createApp(opts: {
 
 	// Tudo abaixo exige ID token Firebase válido, EXCETO o callback do
 	// Google Calendar (Google chama sem ID token; a chamada é autenticada
-	// pelo state=uid e o código de autorização de uso único) e a logo
-	// pública (o link de agendamento carrega a imagem sem conta).
-	const publicPaths = ["/v1/gcal/callback", "/v1/businesses/", "/v1/internal/"];
+	// pelo state=uid e o código de autorização de uso único), a logo
+	// pública (o link de agendamento carrega a imagem sem conta) e a
+	// confirmação do cliente (RF-B02: token HMAC no link do WhatsApp).
+	const publicPaths = [
+		"/v1/gcal/callback",
+		"/v1/businesses/",
+		"/v1/internal/",
+		"/v1/p/",
+	];
 	app.use("/v1/*", async (c, next) => {
 		if (publicPaths.some((p) => c.req.path.startsWith(p))) {
 			return next();
