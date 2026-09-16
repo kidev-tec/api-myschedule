@@ -53,7 +53,12 @@ export function createApp(opts: {
 	const requireWritable = requireWritableFactory(opts.databaseUrl);
 	// gcal/callback é público por natureza (Google chama sem ID token);
 	// autenticação da chamada vem pelo parâmetro state (uid do business).
-	const readOnlyPaths = ["/v1/auth/sync", "/v1/gcal/callback", "/v1/businesses/", "/v1/internal/"];
+	const readOnlyPaths = [
+		"/v1/auth/sync",
+		"/v1/gcal/callback",
+		"/v1/businesses/",
+		"/v1/internal/",
+	];
 	app.use("/v1/*", async (c, next) => {
 		if (
 			c.req.method === "GET" ||
