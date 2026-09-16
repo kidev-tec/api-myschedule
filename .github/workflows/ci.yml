@@ -47,6 +47,21 @@ jobs:
   test:
     name: Test (Vitest) + Coverage
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: dev
+          POSTGRES_DB: minha_agenda_dev
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_DATABASE_URL: postgres://postgres:dev@localhost:5433/minha_agenda_dev
     steps:
       - uses: actions/checkout@v4
       - name: Setup Node
@@ -56,6 +71,10 @@ jobs:
           cache: 'npm'
       - name: Install
         run: npm ci --prefer-offline --no-audit
+      - name: Apply migrations
+        env:
+          DATABASE_URL: postgres://postgres:dev@localhost:5433/minha_agenda_dev
+        run: node scripts/run-migrations.mjs
       - name: Test + Coverage
         run: node node_modules/vitest/vitest.mjs run --coverage
       - name: Upload Coverage
@@ -116,12 +135,7 @@ jobs:
     if: always()
     steps:
       - name: Check All Jobs
+        env:
+          RESULTS: ${{ toJSON(needs) }}
         run: |
-          for job in lint typecheck test build security; do
-            result=${{ needs.$job.result }}
-            if [ "$result" != "success" ]; then
-              echo "❌ $job failed"
-              exit 1
-            fi
-          done
-          echo "✅ All quality gates passed"
+          echo "$RESULTS" | jq -e 'to_entries | all(.value.result == "success")' > /dev/null && echo "All quality gates passed" || { echo "quality gate failed"; exit 1; }

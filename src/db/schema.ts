@@ -14,11 +14,13 @@
 
 import { sql } from "drizzle-orm";
 import {
+	customType,
 	date,
 	index,
 	integer,
 	pgEnum,
 	pgTable,
+	serial,
 	text,
 	time,
 	timestamp,
@@ -72,6 +74,16 @@ export const businesses = pgTable("businesses", {
 	// RF-08: Google Calendar do business (refresh token OAuth, 1 prof/MVP)
 	gcalRefreshToken: text("gcal_refresh_token"),
 	gcalConnectedAt: timestamp("gcal_connected_at", { withTimezone: true }),
+	logoData: customType<{ data: Buffer; driverData: Buffer }>({
+		dataType() {
+			return "bytea";
+		},
+	})("logo_data"),
+	logoMime: varchar("logo_mime", { length: 40 }),
+	logoUpdatedAt: timestamp("logo_updated_at", { withTimezone: true }),
+	trialReminderSentAt: timestamp("trial_reminder_sent_at", {
+		withTimezone: true,
+	}),
 	createdAt: timestamp("created_at", { withTimezone: true })
 		.notNull()
 		.defaultNow(),
@@ -258,4 +270,25 @@ export const subscriptions = pgTable("subscriptions", {
 	externalId: varchar("external_id", { length: 200 }).notNull(),
 	status: varchar("status", { length: 20 }).notNull(),
 	expiresAt: timestamp("expires_at", { withTimezone: true }),
+});
+
+/**
+ * Extensões 2026-09-16 (migrations 0005/0006):
+ * logo do estabelecimento, lembrete de trial e tokens FCM por device.
+ */
+export const businessesWithLogo = businesses;
+
+export const deviceTokens = pgTable("device_tokens", {
+	id: serial("id").primaryKey(),
+	userId: uuid("user_id")
+		.notNull()
+		.references(() => users.id, { onDelete: "cascade" }),
+	fcmToken: text("fcm_token").notNull().unique(),
+	platform: varchar("platform", { length: 10 }).notNull(), // android | ios
+	createdAt: timestamp("created_at", { withTimezone: true })
+		.notNull()
+		.defaultNow(),
+	updatedAt: timestamp("updated_at", { withTimezone: true })
+		.notNull()
+		.defaultNow(),
 });

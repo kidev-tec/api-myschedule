@@ -25,6 +25,7 @@ import {
 	workingHours,
 } from "../db/schema.js";
 import { overlaps } from "../domain/booking.js";
+import { sendToUser } from "../services/fcm.js";
 
 function isUuid(v: unknown): v is string {
 	return (
@@ -254,6 +255,22 @@ export function publicBookingRoutes(databaseUrl: string) {
 
 		/* v8 ignore next 2 -- .returning() de insert válido nunca retorna vazio */
 		if (!created) return c.json({ error: "falha ao criar agendamento" }, 500);
+
+		// Push pro prestador (best-effort, fora do caminho da response): novo
+		// booking pelo link público = cliente novo na agenda dele.
+		const when = start.toLocaleString("pt-BR", {
+			day: "2-digit",
+			month: "2-digit",
+			hour: "2-digit",
+			minute: "2-digit",
+		});
+		sendToUser(
+			databaseUrl,
+			loaded.pro.id,
+			"Novo agendamento",
+			`${client.name} — ${svc.name} em ${when}`,
+		).catch(() => {});
+
 		return c.json(
 			{
 				id: created.id,
