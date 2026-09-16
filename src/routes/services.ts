@@ -261,10 +261,23 @@ export function meRoutes(databaseUrl: string) {
 			business_name?: unknown;
 			business_type?: unknown;
 		} | null;
-		const businessName =
-			typeof body?.business_name === "string" ? body.business_name.trim() : "";
-		if (businessName.length < 1 || businessName.length > 120) {
-			return c.json({ error: "business_name obrigatório (1..120)" }, 400);
+		// PATCH parcial: cada campo é opcional, mas se vier tem que ser válido.
+		// (ensureProvisioned do app faz PATCH só com business_type; o
+		// onboarding manda nome + segmento.)
+		let businessName: string | undefined;
+		if (body?.business_name !== undefined) {
+			if (typeof body.business_name !== "string") {
+				return c.json({ error: "business_name deve ser string" }, 400);
+			}
+			const trimmed = body.business_name.trim();
+			if (trimmed.length < 1 || trimmed.length > 120) {
+				return c.json({ error: "business_name deve ter 1..120 caracteres" }, 400);
+			}
+			businessName = trimmed;
+		}
+		// PATCH sem nenhum campo conhecido (body null/quebrado/vazio) → 400.
+		if (businessName === undefined && body?.business_type === undefined) {
+			return c.json({ error: "nada para atualizar" }, 400);
 		}
 		// Segmento: opcional; se vier, valida contra a whitelist de presets.
 		const SEGMENT_IDS = [
@@ -325,11 +338,14 @@ export function meRoutes(databaseUrl: string) {
 		}
 		await db
 			.update(businesses)
-			.set({ name: businessName, ...(businessType ? { businessType } : {}) })
+			.set({
+				...(businessName !== undefined ? { name: businessName } : {}),
+				...(businessType ? { businessType } : {}),
+			})
 			.where(eq(businesses.id, me.businessId));
 		return c.json({
 			ok: true,
-			business_name: businessName,
+			business_name: businessName ?? null,
 			business_type: businessType ?? null,
 		});
 	});
