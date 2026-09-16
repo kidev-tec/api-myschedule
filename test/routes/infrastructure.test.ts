@@ -53,7 +53,7 @@ async function syncUser(headers: Record<string, string>) {
 	return app.request("/v1/auth/sync", {
 		method: "POST",
 		headers: { "content-type": "application/json", ...headers },
-		body: JSON.stringify({ name: "Pro Teste Logo" }),
+		body: JSON.stringify({ name: `Pro Teste Logo ${Date.now()}-${seq++}` }),
 	});
 }
 
