@@ -36,6 +36,10 @@ type CreateBody = {
 	userId?: unknown;
 	startsAt?: unknown;
 	endsAt?: unknown;
+	// RF-A: "block" cria bloqueio de horário (compromisso externo do prestador).
+	// canceledReason é reaproveitado como MOTIVO do bloqueio (campo já existia).
+	source?: unknown;
+	canceledReason?: unknown;
 };
 
 function parseDate(v: unknown): Date | null {
@@ -74,7 +78,9 @@ export function appointmentRoutes(databaseUrl: string) {
 				startsAt: appointments.startsAt,
 				endsAt: appointments.endsAt,
 				status: appointments.status,
-				source: appointments.source,
+					source: appointments.source,
+					// RF-A02: motivo do bloqueio (canceledReason reaproveitado)
+					canceledReason: appointments.canceledReason,
 				clientId: appointments.clientId,
 				serviceId: appointments.serviceId,
 				userId: appointments.userId,
@@ -155,6 +161,13 @@ export function appointmentRoutes(databaseUrl: string) {
 			}
 		}
 
+		// RF-A: source opcional no POST. "block" = bloqueio de horário.
+		// Qualquer outro valor (além de omitir) é rejeitado — default é "app".
+		const isBlock = body.source !== undefined;
+		if (isBlock && body.source !== "block") {
+			return c.json({ error: "source inválida (use 'block')" }, 400);
+		}
+
 		try {
 			const [created] = await db
 				.insert(appointments)
@@ -166,7 +179,12 @@ export function appointmentRoutes(databaseUrl: string) {
 					startsAt: start,
 					endsAt: end,
 					status: "confirmed",
-					source: "app",
+					source: isBlock ? "block" : "app",
+					// motivo do bloqueio (RF-A02) — campo reaproveitado
+					canceledReason:
+						isBlock && typeof body.canceledReason === "string"
+							? body.canceledReason
+							: null,
 					createdByUserId: user.id,
 				})
 				.returning();
