@@ -116,12 +116,7 @@ jobs:
     if: always()
     steps:
       - name: Check All Jobs
+        env:
+          RESULTS: ${{ toJSON(needs) }}
         run: |
-          for job in lint typecheck test build security; do
-            result=${{ needs.$job.result }}
-            if [ "$result" != "success" ]; then
-              echo "❌ $job failed"
-              exit 1
-            fi
-          done
-          echo "✅ All quality gates passed"
+          echo "$RESULTS" | jq -e 'to_entries | all(.value.result == "success")' > /dev/null && echo "All quality gates passed" || { echo "quality gate failed"; exit 1; }
