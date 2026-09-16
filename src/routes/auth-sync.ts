@@ -3,7 +3,7 @@
  *
  * Chamado pelo app no 1º login (e a cada login para refresh do perfil).
  * Fluxo: middleware já validou o ID token → aqui fazemos upsert por
- * firebase_uid. Se o usuário é novo, cria também o business (trial 30 dias)
+ * firebase_uid. Se o usuário é novo, cria também o business (trial 15 dias)
  * — o MVP trata 1 profissional = 1 business (multi-profissional no mesmo
  * business entra em F2 via convite).
  *
@@ -73,7 +73,7 @@ export function authSyncRoutes(databaseUrl: string) {
 			// uid completo (128 chars) garante unicidade mesmo com nomes iguais
 			const slug = `${slugBase}-${authUser.uid.toLowerCase()}`.slice(0, 80);
 			const trialEnds = new Date();
-			trialEnds.setDate(trialEnds.getDate() + 30);
+			trialEnds.setDate(trialEnds.getDate() + 15);
 
 			const biz = (
 				await tx

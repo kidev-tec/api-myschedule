@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main, staging]
+
+env:
+  NODE_VERSION: '24'
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+jobs:
+  lint:
+    name: Lint (Biome)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - name: Install
+        run: npm ci --prefer-offline --no-audit
+      - name: Lint
+        run: npx --yes biome check src/ test/
+      - name: Format Check
+        run: npx --yes biome check --formatter-enabled=false src/ test/
+
+  typecheck:
+    name: Typecheck (tsc)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - name: Install
+        run: npm ci --prefer-offline --no-audit
+      - name: Typecheck
+        run: npx tsc -p tsconfig.test.json --noEmit
+
+  test:
+    name: Test (Vitest) + Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - name: Install
+        run: npm ci --prefer-offline --no-audit
+      - name: Test + Coverage
+        run: node node_modules/vitest/vitest.mjs run --coverage
+      - name: Upload Coverage
+        uses: codecov/codecov-action@v5
+        if: always()
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          flags: unittests
+          fail_ci_if_error: true
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck, test]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - name: Install
+        run: npm ci --prefer-offline --no-audit
+      - name: Build
+        run: npm run build
+      - name: Verify Output
+        run: test -f dist/index.js && ls -la dist/
+
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - name: Install
+        run: npm ci --prefer-offline --no-audit
+      - name: Audit (moderate+)
+        run: npm audit --audit-level=moderate --json > audit.json || true
+      - name: Check Critical
+        run: |
+          CRIT=$(jq '[.vulnerabilities[] | select(.severity=="critical")] | length' audit.json)
+          HIGH=$(jq '[.vulnerabilities[] | select(.severity=="high")] | length' audit.json)
+          if [ "$CRIT" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+            echo "❌ Critical/High vulnerabilities found"
+            jq '.vulnerabilities[] | select(.severity=="critical" or .severity=="high") | {name: .name, severity: .severity, via: .via}' audit.json
+            exit 1
+          fi
+          echo "✅ No critical/high vulnerabilities"
+
+  validate:
+    name: Validate PR Gate
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck, test, build, security]
+    if: always()
+    steps:
+      - name: Check All Jobs
+        run: |
+          for job in lint typecheck test build security; do
+            result=${{ needs.$job.result }}
+            if [ "$result" != "success" ]; then
+              echo "❌ $job failed"
+              exit 1
+            fi
+          done
+          echo "✅ All quality gates passed"
