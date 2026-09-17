@@ -1,0 +1,18 @@
+services:
+  api:
+    build: .
+    container_name: agenva-api
+    restart: unless-stopped
+    expose:
+      - "3200"
+    networks:
+      - proxy
+    volumes:
+      # Permite atualizar version.json / APKs sem rebuild da imagem
+      - ./public:/app/public
+    env_file:
+      - .env
+
+networks:
+  proxy:
+    external: true
