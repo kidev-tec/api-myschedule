@@ -4,7 +4,7 @@ import { openApiSpec } from "../../src/openapi.js";
 
 const TEST_DB =
 	process.env.TEST_DATABASE_URL ??
-	"postgres://postgres:postgres@localhost:5433/minha_agenda_dev";
+	"postgres://postgres:dev@localhost:5433/minha_agenda_dev";
 
 describe("OpenAPI docs", () => {
 	it("spec é OpenAPI 3.1 válida (campos obrigatórios)", () => {

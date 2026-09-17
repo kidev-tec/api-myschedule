@@ -40,6 +40,9 @@ export const appointmentStatusEnum = pgEnum("appointment_status", [
 export const appointmentSourceEnum = pgEnum("appointment_source", [
 	"app",
 	"public_link",
+	// RF-A: bloqueio de horário do prestador (compromisso externo).
+	// Ocupa slot como qualquer agendamento ativo; cancelar libera.
+	"block",
 ]);
 export const transactionTypeEnum = pgEnum("transaction_type", [
 	"income",
