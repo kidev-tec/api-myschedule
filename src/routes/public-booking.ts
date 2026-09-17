@@ -269,7 +269,7 @@ export function publicBookingRoutes(databaseUrl: string) {
 			loaded.pro.id,
 			"Novo agendamento",
 			`${client.name} — ${svc.name} em ${when}`,
-		).catch(() => {});
+		).catch(/* v8 ignore next -- best-effort FCM */ () => {});
 
 		return c.json(
 			{

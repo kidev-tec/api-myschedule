@@ -216,6 +216,35 @@ describe("POST /v1/me/logo (logo bytea)", () => {
 		const b = (await res.json()) as { error: string };
 		expect(b.error).toContain("multipart");
 	});
+
+	it("sem content-type → 400 (branch header ausente)", async () => {
+		const h = authed(uid());
+		await syncUser(h);
+		const res = await app.request("/v1/me/logo", {
+			method: "POST",
+			headers: h,
+			body: new Uint8Array([1, 2, 3]),
+		});
+		expect(res.status).toBe(400);
+		const b = (await res.json()) as { error: string };
+		expect(b.error).toContain("multipart");
+	});
+
+	it("multipart com body inválido → 400 (formData lança)", async () => {
+		const h = authed(uid());
+		await syncUser(h);
+		const res = await app.request("/v1/me/logo", {
+			method: "POST",
+			headers: {
+				...h,
+				"content-type": "multipart/form-data; boundary=----bad",
+			},
+			body: "----bad\r\nisto-nao-e-formdata-valido",
+		});
+		expect(res.status).toBe(400);
+		const b = (await res.json()) as { error: string };
+		expect(b.error).toContain("formulário");
+	});
 });
 
 describe("POST /v1/devices (borda)", () => {
