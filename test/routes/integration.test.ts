@@ -22,7 +22,6 @@ import { overlaps } from "../../src/domain/booking.js";
 
 const DATABASE_URL =
 	process.env.TEST_DATABASE_URL ??
-	process.env.TEST_DATABASE_URL ??
 	"postgres://postgres:dev@localhost:5433/minha_agenda_dev";
 
 const sql = postgres(DATABASE_URL);
@@ -106,6 +105,16 @@ describe("POST /v1/auth/sync (Postgres real)", () => {
 		};
 		const b2 = (await res2.json()) as { business: { id: string } };
 		expect(b2.business.id).toBe(b1.business.id);
+	});
+
+	it("sufixa uid no nome se nome+segmento já existe", async () => {
+		const nome = `Pro Teste Clash ${Date.now()}`;
+		const first = await syncUser(authed(uid()), nome);
+		expect(first.status).toBe(201);
+		const second = await syncUser(authed(uid()), nome);
+		expect(second.status).toBe(201);
+		const body = (await second.json()) as { business: { name: string } };
+		expect(body.business.name.startsWith(`${nome} ·`)).toBe(true);
 	});
 
 	it("401 sem token", async () => {

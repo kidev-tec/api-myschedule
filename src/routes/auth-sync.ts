@@ -10,7 +10,7 @@
  * Idempotente: chamar 2x não duplica nada.
  */
 
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { getDb } from "../db/connection.js";
 import { businesses, users } from "../db/schema.js";
@@ -75,11 +75,28 @@ export function authSyncRoutes(databaseUrl: string) {
 			const trialEnds = new Date();
 			trialEnds.setDate(trialEnds.getDate() + 15);
 
+			// Índice 0004 (nome+segmento): no 1º sync o segmento é o default
+			// 'beauty'. Se já existir homônimo, sufixa o uid (app renomeia no
+			// onboarding via PATCH /me).
+			const defaultSegment = "beauty";
+			const clash = await tx
+				.select({ id: businesses.id })
+				.from(businesses)
+				.where(
+					and(
+						sql`lower(btrim(${businesses.name})) = lower(btrim(${name}))`,
+						eq(businesses.businessType, defaultSegment),
+					),
+				)
+				.limit(1);
+			const bizName =
+				clash.length > 0 ? `${name} · ${authUser.uid}`.slice(0, 120) : name;
+
 			const biz = (
 				await tx
 					.insert(businesses)
 					.values({
-						name,
+						name: bizName,
 						slug,
 						subscriptionStatus: "trial",
 						trialEndsAt: trialEnds,

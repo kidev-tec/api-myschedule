@@ -41,10 +41,15 @@ function authed(uidValue: string) {
 }
 
 async function syncUser(headers: Record<string, string>) {
+	const auth = headers.Authorization ?? "";
+	const uidValue = auth.startsWith("Bearer ")
+		? auth.slice("Bearer ".length)
+		: auth;
+	// Nome único por uid: índice businesses (nome+segmento) da migration 0004.
 	return app.request("/v1/auth/sync", {
 		method: "POST",
 		headers: { "content-type": "application/json", ...headers },
-		body: JSON.stringify({ name: "Pro Teste" }),
+		body: JSON.stringify({ name: `Pro Teste ${uidValue}` }),
 	});
 }
 
@@ -71,20 +76,21 @@ describe("PATCH /v1/me", () => {
 	it("renomeia o business do usuário", async () => {
 		const h = authed(uid());
 		await createdUser(h);
+		const novoNome = `Studio Novo ${Date.now()}`; // único: nome+segmento agora é UNIQUE
 		const res = await app.request("/v1/me", {
 			method: "PATCH",
 			headers: { "content-type": "application/json", ...h },
-			body: JSON.stringify({ business_name: "Studio Novo" }),
+			body: JSON.stringify({ business_name: novoNome }),
 		});
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as { business_name: string };
-		expect(body.business_name).toBe("Studio Novo");
+		expect(body.business_name).toBe(novoNome);
 		const rows = await sql`
 			SELECT b.name FROM businesses b
 			JOIN users u ON u.business_id = b.id
 			WHERE u.firebase_uid = ${h.Authorization.slice(7)}`;
 		expect(rows.length).toBe(1);
-		expect(rows[0]?.name).toBe("Studio Novo");
+		expect(rows[0]?.name).toBe(novoNome);
 	});
 
 	it("400 sem business_name", async () => {
@@ -96,6 +102,68 @@ describe("PATCH /v1/me", () => {
 			body: JSON.stringify({ business_name: "   " }),
 		});
 		expect(res.status).toBe(400);
+	});
+
+	it("400 quando business_name não é string", async () => {
+		const h = authed(uid());
+		await createdUser(h);
+		const res = await app.request("/v1/me", {
+			method: "PATCH",
+			headers: { "content-type": "application/json", ...h },
+			body: JSON.stringify({ business_name: 123 }),
+		});
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as { error: string };
+		expect(body.error).toContain("string");
+	});
+
+	it("400 nada para atualizar com body vazio", async () => {
+		const h = authed(uid());
+		await createdUser(h);
+		const res = await app.request("/v1/me", {
+			method: "PATCH",
+			headers: { "content-type": "application/json", ...h },
+			body: JSON.stringify({}),
+		});
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as { error: string };
+		expect(body.error).toContain("nada para atualizar");
+	});
+
+	it("PATCH só com business_type (parcial)", async () => {
+		const h = authed(uid());
+		await createdUser(h);
+		const res = await app.request("/v1/me", {
+			method: "PATCH",
+			headers: { "content-type": "application/json", ...h },
+			body: JSON.stringify({ business_type: "barber" }),
+		});
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { business_type: string | null };
+		expect(body.business_type).toBe("barber");
+	});
+
+	it("409 quando outro business no mesmo segmento já tem o nome", async () => {
+		// cria business A com nome X (beauty)
+		const hA = authed(uid());
+		await createdUser(hA);
+		const nome = `Duplicado ${Date.now()}`;
+		await app.request("/v1/me", {
+			method: "PATCH",
+			headers: { "content-type": "application/json", ...hA },
+			body: JSON.stringify({ business_name: nome }),
+		});
+		// business B tenta o mesmo nome no mesmo segmento → 409
+		const hB = authed(uid());
+		await createdUser(hB);
+		const res = await app.request("/v1/me", {
+			method: "PATCH",
+			headers: { "content-type": "application/json", ...hB },
+			body: JSON.stringify({ business_name: nome.toUpperCase() }), // case-insensitive
+		});
+		expect(res.status).toBe(409);
+		const body = (await res.json()) as { error: string };
+		expect(body.error).toContain("Já existe");
 	});
 });
 
@@ -781,7 +849,7 @@ describe("/v1/clients", () => {
 			method: "PATCH",
 			headers: { "content-type": "application/json", ...h },
 			body: JSON.stringify({
-				business_name: "Studio Novo",
+				business_name: `Studio Novo ${Date.now()}`,
 				business_type: "barber",
 			}),
 		});
