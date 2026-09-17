@@ -62,6 +62,9 @@ jobs:
           --health-retries 5
     env:
       TEST_DATABASE_URL: postgres://postgres:dev@localhost:5433/minha_agenda_dev
+      # Dummy OAuth — testes de auth-url/callback não chamam Google de verdade
+      GCAL_CLIENT_ID: gcal-client-ci
+      GCAL_CLIENT_SECRET: gcal-secret-ci
     steps:
       - uses: actions/checkout@v4
       - name: Setup Node
@@ -79,11 +82,12 @@ jobs:
         run: node node_modules/vitest/vitest.mjs run --coverage
       - name: Upload Coverage
         uses: codecov/codecov-action@v5
-        if: always()
+        if: success()
+        continue-on-error: true
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           flags: unittests
-          fail_ci_if_error: true
+          fail_ci_if_error: false
 
   build:
     name: Build

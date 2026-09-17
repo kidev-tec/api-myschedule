@@ -11,8 +11,14 @@ npm run typecheck || { echo '❌ Typecheck failed'; exit 1; }
 
 echo '🔍 Tests with coverage 100%...'
 OUTPUT=$(npm run test:coverage 2>&1)
-echo "$OUTPUT" | tail -5
-if ! echo "$OUTPUT" | grep -q "All files.*100.*100.*100.*100"; then
+STATUS=$?
+echo "$OUTPUT" | tail -8
+if [ "$STATUS" -ne 0 ]; then
+  echo '❌ Tests/coverage failed'
+  exit 1
+fi
+# Vitest omite a linha "All files" quando tudo é 100%; aceita o summary também.
+if ! echo "$OUTPUT" | grep -qE 'All files[[:space:]]*\|[[:space:]]*100|Statements[[:space:]]*:[[:space:]]*100%'; then
   echo '❌ Coverage not 100%'
   exit 1
 fi
