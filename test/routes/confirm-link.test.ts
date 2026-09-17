@@ -21,7 +21,7 @@ import { confirmationToken } from "../../src/domain/confirmation-token.js";
 
 const DATABASE_URL =
 	process.env.TEST_DATABASE_URL ??
-	"postgres://postgres:postgres@localhost:5433/minha_agenda_dev";
+	"postgres://postgres:dev@localhost:5433/minha_agenda_dev";
 
 const sql = postgres(DATABASE_URL);
 const app = createApp({

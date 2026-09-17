@@ -8,7 +8,6 @@
  */
 
 import postgres from "postgres";
-import { createHmac } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const verifyMock = vi.hoisted(() => vi.fn());
@@ -25,7 +24,7 @@ import { confirmationToken } from "../../src/domain/confirmation-token.js";
 
 const DATABASE_URL =
 	process.env.TEST_DATABASE_URL ??
-	"postgres://postgres:postgres@localhost:5433/minha_agenda_dev";
+	"postgres://postgres:dev@localhost:5433/minha_agenda_dev";
 
 const sql = postgres(DATABASE_URL);
 const app = createApp({
@@ -179,6 +178,36 @@ describe("RF-B — confirmação do cliente via link (token HMAC)", () => {
 		const token = confirmationToken(fakeId, when());
 		const res = await app.request(
 			`/p/${slug}/confirm/${fakeId}?token=${token}&decide=confirm`,
+		);
+		expect(res.status).toBe(404);
+	});
+
+	it("decide inválido ou ausente → 400", async () => {
+		const appt = await createPending();
+		const token = confirmationToken(appt.id, appt.startsAt);
+		const bad = await app.request(
+			`/p/${slug}/confirm/${appt.id}?token=${token}&decide=talvez`,
+		);
+		expect(bad.status).toBe(400);
+		const missing = await app.request(
+			`/p/${slug}/confirm/${appt.id}?token=${token}`,
+		);
+		expect(missing.status).toBe(400);
+	});
+
+	it("token ausente → 403", async () => {
+		const appt = await createPending();
+		const res = await app.request(
+			`/p/${slug}/confirm/${appt.id}?decide=confirm`,
+		);
+		expect(res.status).toBe(403);
+	});
+
+	it("slug inexistente → 404", async () => {
+		const appt = await createPending();
+		const token = confirmationToken(appt.id, appt.startsAt);
+		const res = await app.request(
+			`/p/slug-fantasma/confirm/${appt.id}?token=${token}&decide=confirm`,
 		);
 		expect(res.status).toBe(404);
 	});

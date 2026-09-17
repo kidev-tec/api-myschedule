@@ -428,7 +428,10 @@ export function publicBookingRoutes(databaseUrl: string) {
 
 		// RF-B04: idempotente — só pending muda; confirmed/canceled re-responde 200
 		if (appt.status === "pending") {
-			const patch: { status: "confirmed" | "canceled"; canceledReason?: string } =
+			const patch: {
+				status: "confirmed" | "canceled";
+				canceledReason?: string;
+			} =
 				decide === "confirm"
 					? { status: "confirmed" }
 					: { status: "canceled", canceledReason: "cliente cancelou via link" };
@@ -449,6 +452,7 @@ export function publicBookingRoutes(databaseUrl: string) {
 				.from(clients)
 				.where(eq(clients.id, appt.clientId))
 				.limit(1);
+			/* v8 ignore next -- client sempre existe via FK; ?? é defesa */
 			const clientName = client?.name ?? "Cliente";
 			const title =
 				decide === "confirm" ? "✅ Confirmação de presença" : "❌ Cancelamento";
@@ -457,6 +461,7 @@ export function publicBookingRoutes(databaseUrl: string) {
 					? `${clientName} confirmou presença em ${when}.`
 					: `${clientName} não vai poder em ${when}. Horário vagou!`;
 			void sendToUser(databaseUrl, loaded.pro.id, title, bodyMsg).catch(
+				/* v8 ignore next -- sendToUser nunca rejeita; defesa de contrato */
 				() => undefined,
 			);
 		}

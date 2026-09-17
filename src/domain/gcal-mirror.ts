@@ -187,6 +187,26 @@ export async function mirrorToCalendar(
 		/* v8 ignore next -- defensivo: Google sempre devolve id no 201 */
 		throw new Error("evento criado sem id");
 	}
+	// Revalida status: se cancelou durante o POST, não grava o id
+	// (evita race com mirror de cancelamento).
+	const still = (
+		await db
+			.select({ status: appointments.status })
+			.from(appointments)
+			.where(eq(appointments.id, appointmentId))
+			.limit(1)
+	)[0]?.status;
+	if (still !== "confirmed") {
+		try {
+			await fetch(`${GCAL_EVENTS}/${encodeURIComponent(created.id)}`, {
+				method: "DELETE",
+				headers: { Authorization: `Bearer ${token}` },
+			});
+		} catch {
+			/* best-effort: evento órfão no Calendar */
+		}
+		return;
+	}
 	await db
 		.update(appointments)
 		.set({ gcalEventId: created.id })

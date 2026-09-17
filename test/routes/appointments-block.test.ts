@@ -20,7 +20,7 @@ import { createApp } from "../../src/app.js";
 
 const DATABASE_URL =
 	process.env.TEST_DATABASE_URL ??
-	"postgres://postgres:***@localhost:5433/minha_agenda_dev";
+	"postgres://postgres:dev@localhost:5433/minha_agenda_dev";
 
 const sql = postgres(DATABASE_URL);
 const app = createApp({
@@ -107,7 +107,8 @@ describe("RF-A — bloqueio de horário (source='block')", () => {
 			endsAt: dayAt(11).toISOString(),
 			source: "block",
 		});
-		if (res.status !== 201) console.error("[dbg RF-A01]", res.status, await res.text());
+		if (res.status !== 201)
+			console.error("[dbg RF-A01]", res.status, await res.text());
 		expect(res.status).toBe(201);
 		const { appointment } = (await res.json()) as {
 			appointment: { source: string; status: string };

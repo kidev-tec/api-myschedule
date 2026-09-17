@@ -85,9 +85,9 @@ export function appointmentRoutes(databaseUrl: string) {
 				startsAt: appointments.startsAt,
 				endsAt: appointments.endsAt,
 				status: appointments.status,
-					source: appointments.source,
-					// RF-A02: motivo do bloqueio (canceledReason reaproveitado)
-					canceledReason: appointments.canceledReason,
+				source: appointments.source,
+				// RF-A02: motivo do bloqueio (canceledReason reaproveitado)
+				canceledReason: appointments.canceledReason,
 				clientId: appointments.clientId,
 				serviceId: appointments.serviceId,
 				userId: appointments.userId,
@@ -244,10 +244,12 @@ export function appointmentRoutes(databaseUrl: string) {
 			.from(businesses)
 			.where(eq(businesses.id, user.businessId))
 			.limit(1);
+		/* v8 ignore next -- user.businessId sempre aponta pra business existente */
 		if (!biz) return c.json({ error: "business não encontrado" }, 404);
 
 		const token = confirmationToken(id, appt.startsAt);
-		const base = c.req.url.split("/v1/")[0] ?? "";
+		// split sempre retorna ≥1 elemento; ?? só satisfaz o typechecker
+		const base = c.req.url.split("/v1/")[0] as string;
 		const link = `${base}/p/${biz.slug}/confirm/${id}?token=${token}`;
 		return c.json({ link });
 	});
