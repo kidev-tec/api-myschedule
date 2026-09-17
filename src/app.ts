@@ -12,6 +12,11 @@ import { authSyncRoutes } from "./routes/auth-sync.js";
 import { clientsRoutes } from "./routes/clients.js";
 import { docsRoutes } from "./routes/docs.js";
 import { gcalRoutes } from "./routes/gcal.js";
+import {
+	deviceRoutes,
+	internalRoutes,
+	logoRoutes,
+} from "./routes/infrastructure.js";
 import { publicBookingRoutes } from "./routes/public-booking.js";
 import { meRoutes, servicesRoutes } from "./routes/services.js";
 import { versionRoutes } from "./routes/version.js";
@@ -29,8 +34,15 @@ export function createApp(opts: {
 
 	// Tudo abaixo exige ID token Firebase válido, EXCETO o callback do
 	// Google Calendar (Google chama sem ID token; a chamada é autenticada
-	// pelo state=uid e o código de autorização de uso único).
-	const publicPaths = ["/v1/gcal/callback"];
+	// pelo state=uid e o código de autorização de uso único), a logo
+	// pública (o link de agendamento carrega a imagem sem conta) e a
+	// confirmação do cliente (RF-B02: token HMAC no link do WhatsApp).
+	const publicPaths = [
+		"/v1/gcal/callback",
+		"/v1/businesses/",
+		"/v1/internal/",
+		"/v1/p/",
+	];
 	app.use("/v1/*", async (c, next) => {
 		if (publicPaths.some((p) => c.req.path.startsWith(p))) {
 			return next();
@@ -47,7 +59,12 @@ export function createApp(opts: {
 	const requireWritable = requireWritableFactory(opts.databaseUrl);
 	// gcal/callback é público por natureza (Google chama sem ID token);
 	// autenticação da chamada vem pelo parâmetro state (uid do business).
-	const readOnlyPaths = ["/v1/auth/sync", "/v1/gcal/callback"];
+	const readOnlyPaths = [
+		"/v1/auth/sync",
+		"/v1/gcal/callback",
+		"/v1/businesses/",
+		"/v1/internal/",
+	];
 	app.use("/v1/*", async (c, next) => {
 		if (
 			c.req.method === "GET" ||
@@ -61,9 +78,14 @@ export function createApp(opts: {
 	app.route("/v1", authSyncRoutes(opts.databaseUrl));
 	app.route("/v1", meRoutes(opts.databaseUrl));
 	app.route("/v1", servicesRoutes(opts.databaseUrl));
+	app.route("/v1", deviceRoutes(opts.databaseUrl));
 	app.route("/v1", workingHoursRoutes(opts.databaseUrl));
 	app.route("/v1", clientsRoutes(opts.databaseUrl));
 	app.route("/v1/appointments", appointmentRoutes(opts.databaseUrl));
+
+	// Logo pública (sem auth — o link de agendamento usa) + rotas internas
+	app.route("/v1", logoRoutes(opts.databaseUrl));
+	app.route("/v1", internalRoutes(opts.databaseUrl));
 
 	// RF-07 — link público (sem Firebase auth; rotas /p/*)
 	app.route("/", publicBookingRoutes(opts.databaseUrl));

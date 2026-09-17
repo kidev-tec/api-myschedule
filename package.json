@@ -1,6 +1,6 @@
 {
   "name": "minha-agenda-api",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "API do Minha Agenda — agenda profissional para egressos da Oficina da Beleza",
   "type": "module",
   "scripts": {
@@ -17,7 +17,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node scripts/run-migrations.mjs",
     "db:studio": "drizzle-kit studio",
-    "prepare": "husky"
+    "prepare": "[ \"$NODE_ENV\" = production ] || husky"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",

@@ -22,7 +22,6 @@ import { overlaps } from "../../src/domain/booking.js";
 
 const DATABASE_URL =
 	process.env.TEST_DATABASE_URL ??
-	process.env.TEST_DATABASE_URL ??
 	"postgres://postgres:dev@localhost:5433/minha_agenda_dev";
 
 const sql = postgres(DATABASE_URL);
@@ -73,7 +72,7 @@ afterAll(async () => {
 });
 
 describe("POST /v1/auth/sync (Postgres real)", () => {
-	it("cria business + user no 1º sync (201), com trial de 30 dias", async () => {
+	it("cria business + user no 1º sync (201), com trial de 15 dias", async () => {
 		const h = authed(uid());
 		const res = await syncUser(h, "Pro Teste Primeiro");
 		expect(res.status).toBe(201);
@@ -87,9 +86,11 @@ describe("POST /v1/auth/sync (Postgres real)", () => {
 		};
 		expect(body.user.role).toBe("owner");
 		expect(body.business.subscriptionStatus).toBe("trial");
-		expect(new Date(body.business.trialEndsAt).getTime()).toBeGreaterThan(
-			Date.now(),
-		);
+		const trialDays =
+			(new Date(body.business.trialEndsAt).getTime() - Date.now()) /
+			(1000 * 60 * 60 * 24);
+		expect(trialDays).toBeGreaterThan(14);
+		expect(trialDays).toBeLessThan(16);
 		expect(body.business.slug).toMatch(/^pro-teste-primeiro-/);
 	});
 
@@ -104,6 +105,16 @@ describe("POST /v1/auth/sync (Postgres real)", () => {
 		};
 		const b2 = (await res2.json()) as { business: { id: string } };
 		expect(b2.business.id).toBe(b1.business.id);
+	});
+
+	it("sufixa uid no nome se nome+segmento já existe", async () => {
+		const nome = `Pro Teste Clash ${Date.now()}`;
+		const first = await syncUser(authed(uid()), nome);
+		expect(first.status).toBe(201);
+		const second = await syncUser(authed(uid()), nome);
+		expect(second.status).toBe(201);
+		const body = (await second.json()) as { business: { name: string } };
+		expect(body.business.name.startsWith(`${nome} ·`)).toBe(true);
 	});
 
 	it("401 sem token", async () => {

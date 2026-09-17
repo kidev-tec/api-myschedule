@@ -29,7 +29,7 @@ import { mirrorToCalendar } from "../../src/domain/gcal-mirror.js";
 
 const DATABASE_URL =
 	process.env.TEST_DATABASE_URL ??
-	"postgres://postgres:postgres@localhost:5433/minha_agenda_dev";
+	"postgres://postgres:dev@localhost:5433/minha_agenda_dev";
 
 const sql = postgres(DATABASE_URL);
 const app = createApp({
@@ -243,7 +243,7 @@ describe("RF-08: espelho two-way no Calendar", () => {
 			body: JSON.stringify({ status: "canceled" }),
 		});
 		expect(res.status).toBe(200);
-		await new Promise((r) => setTimeout(r, 50));
+		await new Promise((r) => setTimeout(r, 150));
 
 		const delCall = fetchMock.mock.calls.find(
 			([u, i]) => String(u).includes("EVT-cancel-1") && i?.method === "DELETE",
@@ -389,6 +389,34 @@ describe("RF-08: espelho two-way no Calendar", () => {
 		await expect(
 			mirrorToCalendar(DATABASE_URL, "11111111-1111-4111-8111-111111111111"),
 		).resolves.toBeUndefined();
+	});
+
+	it("cancelado durante create → não grava gcal_event_id e remove o evento", async () => {
+		await setupProfessional(`Mirror Race ${RUN}`, "RT-race");
+		await createFixture();
+		const { id } = await bookTomorrow(11);
+		await sql`update appointments set status = 'confirmed' where id = ${id}`;
+
+		fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+			const u = String(url);
+			if (u.includes("oauth2.googleapis.com/token")) {
+				return Response.json({ access_token: "AT-race" });
+			}
+			if (init?.method === "POST" && u.includes("/events")) {
+				await sql`update appointments set status = 'canceled' where id = ${id}`;
+				return Response.json({ id: "EVT-race-orphan" });
+			}
+			if (init?.method === "DELETE") {
+				return new Response(null, { status: 204 });
+			}
+			return new Response("unexpected", { status: 500 });
+		});
+
+		await mirrorToCalendar(DATABASE_URL, id);
+		const row = await eventRow(id);
+		expect(row?.gcal_event_id).toBeNull();
+		const del = fetchMock.mock.calls.find(([, i]) => i?.method === "DELETE");
+		expect(del).toBeTruthy();
 	});
 
 	it("GCAL_CLIENT_ID/SECRET setados → refresh usa as credenciais do env", async () => {

@@ -3,14 +3,14 @@
  *
  * Chamado pelo app no 1º login (e a cada login para refresh do perfil).
  * Fluxo: middleware já validou o ID token → aqui fazemos upsert por
- * firebase_uid. Se o usuário é novo, cria também o business (trial 30 dias)
+ * firebase_uid. Se o usuário é novo, cria também o business (trial 15 dias)
  * — o MVP trata 1 profissional = 1 business (multi-profissional no mesmo
  * business entra em F2 via convite).
  *
  * Idempotente: chamar 2x não duplica nada.
  */
 
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { getDb } from "../db/connection.js";
 import { businesses, users } from "../db/schema.js";
@@ -73,13 +73,30 @@ export function authSyncRoutes(databaseUrl: string) {
 			// uid completo (128 chars) garante unicidade mesmo com nomes iguais
 			const slug = `${slugBase}-${authUser.uid.toLowerCase()}`.slice(0, 80);
 			const trialEnds = new Date();
-			trialEnds.setDate(trialEnds.getDate() + 30);
+			trialEnds.setDate(trialEnds.getDate() + 15);
+
+			// Índice 0004 (nome+segmento): no 1º sync o segmento é o default
+			// 'beauty'. Se já existir homônimo, sufixa o uid (app renomeia no
+			// onboarding via PATCH /me).
+			const defaultSegment = "beauty";
+			const clash = await tx
+				.select({ id: businesses.id })
+				.from(businesses)
+				.where(
+					and(
+						sql`lower(btrim(${businesses.name})) = lower(btrim(${name}))`,
+						eq(businesses.businessType, defaultSegment),
+					),
+				)
+				.limit(1);
+			const bizName =
+				clash.length > 0 ? `${name} · ${authUser.uid}`.slice(0, 120) : name;
 
 			const biz = (
 				await tx
 					.insert(businesses)
 					.values({
-						name,
+						name: bizName,
 						slug,
 						subscriptionStatus: "trial",
 						trialEndsAt: trialEnds,

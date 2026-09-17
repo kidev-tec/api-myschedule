@@ -20,16 +20,31 @@ function jsToTsPlugin() {
   };
 }
 
+const LOCAL_TEST_DB =
+  "postgres://postgres:dev@localhost:5433/minha_agenda_dev";
+
 function loadTestEnv() {
   try {
     const raw = fs.readFileSync(".env", "utf8");
     for (const line of raw.split("\n")) {
       const m = line.match(/^([A-Z_]+)=(.*)$/);
-      if (m?.[1] && !process.env[m[1]]) process.env[m[1]] = m[2];
+      // Não herdar DATABASE_URL / TEST_DATABASE_URL do .env (Supabase) nem do shell
+      if (
+        m?.[1] &&
+        m[1] !== "DATABASE_URL" &&
+        m[1] !== "TEST_DATABASE_URL" &&
+        m[1] !== "DIRECT_URL" &&
+        !process.env[m[1]]
+      ) {
+        process.env[m[1]] = m[2];
+      }
     }
   } catch {
     /* .env opcional */
   }
+  // Testes SEMPRE no Postgres local (mesmo do CI) — ignora shell/Supabase
+  process.env.TEST_DATABASE_URL = LOCAL_TEST_DB;
+  process.env.DATABASE_URL = LOCAL_TEST_DB;
 }
 loadTestEnv();
 

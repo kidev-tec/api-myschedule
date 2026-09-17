@@ -10,8 +10,15 @@
 import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { type Db, getDb } from "../db/connection.js";
-import { appointments, clients, services, users } from "../db/schema.js";
+import {
+	appointments,
+	businesses,
+	clients,
+	services,
+	users,
+} from "../db/schema.js";
 import { overlaps } from "../domain/booking.js";
+import { confirmationToken } from "../domain/confirmation-token.js";
 import { mirrorToCalendar } from "../domain/gcal-mirror.js";
 import type { AppEnv } from "../types.js";
 
@@ -36,6 +43,10 @@ type CreateBody = {
 	userId?: unknown;
 	startsAt?: unknown;
 	endsAt?: unknown;
+	// RF-A: "block" cria bloqueio de horário (compromisso externo do prestador).
+	// canceledReason é reaproveitado como MOTIVO do bloqueio (campo já existia).
+	source?: unknown;
+	canceledReason?: unknown;
 };
 
 function parseDate(v: unknown): Date | null {
@@ -75,6 +86,8 @@ export function appointmentRoutes(databaseUrl: string) {
 				endsAt: appointments.endsAt,
 				status: appointments.status,
 				source: appointments.source,
+				// RF-A02: motivo do bloqueio (canceledReason reaproveitado)
+				canceledReason: appointments.canceledReason,
 				clientId: appointments.clientId,
 				serviceId: appointments.serviceId,
 				userId: appointments.userId,
@@ -155,6 +168,13 @@ export function appointmentRoutes(databaseUrl: string) {
 			}
 		}
 
+		// RF-A: source opcional no POST. "block" = bloqueio de horário.
+		// Qualquer outro valor (além de omitir) é rejeitado — default é "app".
+		const isBlock = body.source !== undefined;
+		if (isBlock && body.source !== "block") {
+			return c.json({ error: "source inválida (use 'block')" }, 400);
+		}
+
 		try {
 			const [created] = await db
 				.insert(appointments)
@@ -166,7 +186,12 @@ export function appointmentRoutes(databaseUrl: string) {
 					startsAt: start,
 					endsAt: end,
 					status: "confirmed",
-					source: "app",
+					source: isBlock ? "block" : "app",
+					// motivo do bloqueio (RF-A02) — campo reaproveitado
+					canceledReason:
+						isBlock && typeof body.canceledReason === "string"
+							? body.canceledReason
+							: null,
 					createdByUserId: user.id,
 				})
 				.returning();
@@ -188,6 +213,45 @@ export function appointmentRoutes(databaseUrl: string) {
 			}
 			throw err;
 		}
+	});
+
+	// RF-B01: link de confirmação do cliente (usado pelo app pra montar
+	// a mensagem do WhatsApp). Requer auth — é o prestador pedindo.
+	routes.get("/:id/confirm-link", async (c) => {
+		const authUser = c.get("authUser");
+		const user = await requireUser(db, authUser.uid);
+		/* v8 ignore next 3 -- inatingível: paywall middleware retorna 404 antes */
+		if (!user) return c.json({ error: "usuário não sincronizado" }, 403);
+
+		const id = c.req.param("id");
+		if (!isUuid(id)) return c.json({ error: "id inválido" }, 400);
+
+		const [appt] = await db
+			.select({ startsAt: appointments.startsAt })
+			.from(appointments)
+			.where(
+				and(
+					eq(appointments.id, id),
+					eq(appointments.businessId, user.businessId),
+				),
+			)
+			.limit(1);
+		if (!appt) return c.json({ error: "agendamento não encontrado" }, 404);
+
+		// slug do business (necessário pro link público)
+		const [biz] = await db
+			.select({ slug: businesses.slug })
+			.from(businesses)
+			.where(eq(businesses.id, user.businessId))
+			.limit(1);
+		/* v8 ignore next -- user.businessId sempre aponta pra business existente */
+		if (!biz) return c.json({ error: "business não encontrado" }, 404);
+
+		const token = confirmationToken(id, appt.startsAt);
+		// split sempre retorna ≥1 elemento; ?? só satisfaz o typechecker
+		const base = c.req.url.split("/v1/")[0] as string;
+		const link = `${base}/p/${biz.slug}/confirm/${id}?token=${token}`;
+		return c.json({ link });
 	});
 
 	// PATCH /appointments/:id — cancelar (soft: status) ou remarcar

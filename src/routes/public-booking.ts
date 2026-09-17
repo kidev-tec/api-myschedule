@@ -25,6 +25,8 @@ import {
 	workingHours,
 } from "../db/schema.js";
 import { overlaps } from "../domain/booking.js";
+import { verifyConfirmationToken } from "../domain/confirmation-token.js";
+import { sendToUser } from "../services/fcm.js";
 
 function isUuid(v: unknown): v is string {
 	return (
@@ -254,6 +256,22 @@ export function publicBookingRoutes(databaseUrl: string) {
 
 		/* v8 ignore next 2 -- .returning() de insert válido nunca retorna vazio */
 		if (!created) return c.json({ error: "falha ao criar agendamento" }, 500);
+
+		// Push pro prestador (best-effort, fora do caminho da response): novo
+		// booking pelo link público = cliente novo na agenda dele.
+		const when = start.toLocaleString("pt-BR", {
+			day: "2-digit",
+			month: "2-digit",
+			hour: "2-digit",
+			minute: "2-digit",
+		});
+		sendToUser(
+			databaseUrl,
+			loaded.pro.id,
+			"Novo agendamento",
+			`${client.name} — ${svc.name} em ${when}`,
+		).catch(/* v8 ignore next -- best-effort FCM */ () => {});
+
 		return c.json(
 			{
 				id: created.id,
@@ -374,6 +392,87 @@ export function publicBookingRoutes(databaseUrl: string) {
 		const slug = c.req.param("slug");
 		c.header("Cache-Control", "no-store, max-age=0");
 		return c.html(publicPageHtml(slug));
+	});
+
+	// ---- RF-B02..B04: confirmação de presença do cliente (link do WhatsApp)
+	// Sem auth: token HMAC(amendmentId+startsAt). Idempotente por design.
+	routes.get("/p/:slug/confirm/:appointmentId", async (c) => {
+		const slug = c.req.param("slug");
+		const appointmentId = c.req.param("appointmentId");
+		const token = c.req.query("token") ?? "";
+		const decide = c.req.query("decide") ?? "";
+
+		if (decide !== "confirm" && decide !== "cancel") {
+			return c.json({ error: "decide inválido (confirm|cancel)" }, 400);
+		}
+
+		const loaded = await loadBySlug(db, slug);
+		if (!loaded) return c.json({ error: "link não encontrado" }, 404);
+
+		const [appt] = await db
+			.select()
+			.from(appointments)
+			.where(
+				and(
+					eq(appointments.id, appointmentId),
+					eq(appointments.businessId, loaded.biz.id),
+				),
+			)
+			.limit(1);
+		if (!appt) return c.json({ error: "agendamento não encontrado" }, 404);
+
+		// RF-B03: token inválido → 403 sem alterar nada
+		if (!verifyConfirmationToken(appointmentId, appt.startsAt, token)) {
+			return c.json({ error: "token inválido" }, 403);
+		}
+
+		// RF-B04: idempotente — só pending muda; confirmed/canceled re-responde 200
+		if (appt.status === "pending") {
+			const patch: {
+				status: "confirmed" | "canceled";
+				canceledReason?: string;
+			} =
+				decide === "confirm"
+					? { status: "confirmed" }
+					: { status: "canceled", canceledReason: "cliente cancelou via link" };
+			await db
+				.update(appointments)
+				.set(patch)
+				.where(eq(appointments.id, appointmentId));
+
+			// push pro prestador (best-effort, igual ao novo agendamento)
+			const when = new Date(appt.startsAt).toLocaleString("pt-BR", {
+				day: "2-digit",
+				month: "2-digit",
+				hour: "2-digit",
+				minute: "2-digit",
+			});
+			const [client] = await db
+				.select({ name: clients.name })
+				.from(clients)
+				.where(eq(clients.id, appt.clientId))
+				.limit(1);
+			/* v8 ignore next -- client sempre existe via FK; ?? é defesa */
+			const clientName = client?.name ?? "Cliente";
+			const title =
+				decide === "confirm" ? "✅ Confirmação de presença" : "❌ Cancelamento";
+			const bodyMsg =
+				decide === "confirm"
+					? `${clientName} confirmou presença em ${when}.`
+					: `${clientName} não vai poder em ${when}. Horário vagou!`;
+			void sendToUser(databaseUrl, loaded.pro.id, title, bodyMsg).catch(
+				/* v8 ignore next -- sendToUser nunca rejeita; defesa de contrato */
+				() => undefined,
+			);
+		}
+
+		return c.json({
+			status: decide === "confirm" ? "confirmed" : "canceled",
+			message:
+				decide === "confirm"
+					? "Presença confirmada! Te esperamos."
+					: "Tudo certo, horário liberado.",
+		});
 	});
 
 	return routes;
