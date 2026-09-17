@@ -69,6 +69,7 @@ afterAll(async () => {
 
 describe("RF-08: Google Calendar", () => {
 	it("GET /v1/gcal/auth-url → URL de consent com state=uid", async () => {
+		process.env.GCAL_CLIENT_ID = "gcal-client-teste";
 		const { uid, h } = await setupUser("Pro GCal URL");
 		const res = await app.request("/v1/gcal/auth-url", { headers: h });
 		expect(res.status).toBe(200);
@@ -81,7 +82,7 @@ describe("RF-08: Google Calendar", () => {
 		expect(u.searchParams.get("access_type")).toBe("offline");
 		expect(u.searchParams.get("state")).toBe(uid);
 		expect(u.searchParams.get("scope")).toContain("calendar");
-		expect(u.searchParams.get("client_id")).toBeTruthy();
+		expect(u.searchParams.get("client_id")).toBe("gcal-client-teste");
 	});
 
 	it("callback: sem code → 400; uid desconhecido → 404", async () => {

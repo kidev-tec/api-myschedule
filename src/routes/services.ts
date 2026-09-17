@@ -245,7 +245,67 @@ export function meRoutes(databaseUrl: string) {
 			timezone: biz.timezone,
 			subscription_status: biz.subscriptionStatus,
 			trial_ends_at: biz.trialEndsAt,
+			logo_url: biz.logoData ? `/v1/businesses/${biz.slug}/logo` : null,
 		});
+	});
+
+	/**
+	 * POST /me/logo — upload multipart (campo "logo", PNG/JPG ≤2MB).
+	 * Salva bytea na própria base (Storage REST exige service_role key).
+	 */
+	routes.post("/me/logo", async (c) => {
+		const authUser = c.get("authUser");
+		const me = (
+			await db
+				.select()
+				.from(users)
+				.where(eq(users.firebaseUid, authUser.uid))
+				.limit(1)
+		)[0];
+		/* v8 ignore next -- inatingível: paywall retorna 404 antes */
+		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		const biz = (
+			await db
+				.select()
+				.from(businesses)
+				.where(eq(businesses.id, me.businessId))
+				.limit(1)
+		)[0];
+		/* v8 ignore next -- defensivo: user sempre tem business */
+		if (!biz) return c.json({ error: "business não encontrado" }, 404);
+
+		const MAX_BYTES = 2 * 1024 * 1024;
+		const ALLOWED = new Set(["image/png", "image/jpeg"]);
+		const mime = c.req.header("content-type")?.split(";")[0] ?? "";
+		if (!mime.startsWith("multipart/form-data")) {
+			return c.json({ error: "envie a imagem como multipart/form-data" }, 400);
+		}
+		let file: File | null = null;
+		try {
+			const form = await c.req.formData();
+			const raw = form.get("logo");
+			if (raw instanceof File) file = raw;
+		} catch {
+			return c.json({ error: "não consegui ler o formulário enviado" }, 400);
+		}
+		if (!(file instanceof File)) {
+			return c.json({ error: "campo 'logo' é obrigatório" }, 400);
+		}
+		if (!ALLOWED.has(file.type)) {
+			return c.json({ error: "formato não suportado. Use PNG ou JPG." }, 400);
+		}
+		if (file.size > MAX_BYTES) {
+			return c.json(
+				{ error: "a imagem passou de 2MB. Escolha uma menor." },
+				400,
+			);
+		}
+		const bytes = Buffer.from(await file.arrayBuffer());
+		await db
+			.update(businesses)
+			.set({ logoData: bytes, logoMime: file.type, logoUpdatedAt: new Date() })
+			.where(eq(businesses.id, biz.id));
+		return c.json({ logoUrl: `/v1/businesses/${biz.slug}/logo` });
 	});
 
 	routes.patch("/me", async (c) => {
