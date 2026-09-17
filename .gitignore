@@ -4,6 +4,8 @@ coverage/
 data/
 .env
 .env.*
+!.env.example
 *.local
 .DS_Store
+*.tsbuildinfo
 public/apks/*.apk
