@@ -271,7 +271,10 @@ export function meRoutes(databaseUrl: string) {
 			}
 			const trimmed = body.business_name.trim();
 			if (trimmed.length < 1 || trimmed.length > 120) {
-				return c.json({ error: "business_name deve ter 1..120 caracteres" }, 400);
+				return c.json(
+					{ error: "business_name deve ter 1..120 caracteres" },
+					400,
+				);
 			}
 			businessName = trimmed;
 		}
@@ -303,6 +306,7 @@ export function meRoutes(databaseUrl: string) {
 		}
 		// Unicidade nome+segmento (Rafael 15/09): não pode existir outro
 		// business no mesmo segmento com nome idêntico (case-insensitive).
+		// Vale também ao mudar só o segmento (nome atual + novo tipo).
 		const biz = (
 			await db
 				.select()
@@ -310,31 +314,31 @@ export function meRoutes(databaseUrl: string) {
 				.where(eq(businesses.id, me.businessId))
 				.limit(1)
 		).at(0);
+		/* v8 ignore next -- defensivo: user sempre tem business (FK NOT NULL + sync) */
+		if (!biz) return c.json({ error: "business não encontrado" }, 404);
 		// A checagem explícita dá 409 amigável; o índice único do banco
 		// (0004) é a defesa final contra corrida.
-		const finalName = businessName;
+		const finalName = businessName ?? biz.name;
 		const finalSegment = businessType ?? biz.businessType;
-		if (finalName !== undefined) {
-			const dup = await db
-				.select({ id: businesses.id })
-				.from(businesses)
-				.where(
-					and(
-						sql`lower(btrim(${businesses.name})) = lower(btrim(${finalName}))`,
-						eq(businesses.businessType, finalSegment),
-						sql`${businesses.id} <> ${me.businessId}`,
-					),
-				)
-				.limit(1);
-			if (dup.length > 0) {
-				return c.json(
-					{
-						error:
-							"Já existe um estabelecimento com esse nome neste segmento. Escolhe outro nome.",
-					},
-					409,
-				);
-			}
+		const dup = await db
+			.select({ id: businesses.id })
+			.from(businesses)
+			.where(
+				and(
+					sql`lower(btrim(${businesses.name})) = lower(btrim(${finalName}))`,
+					eq(businesses.businessType, finalSegment),
+					sql`${businesses.id} <> ${me.businessId}`,
+				),
+			)
+			.limit(1);
+		if (dup.length > 0) {
+			return c.json(
+				{
+					error:
+						"Já existe um estabelecimento com esse nome neste segmento. Escolhe outro nome.",
+				},
+				409,
+			);
 		}
 		await db
 			.update(businesses)
