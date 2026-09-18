@@ -388,10 +388,12 @@ export function publicBookingRoutes(databaseUrl: string) {
 	});
 
 	// ---- HTML da página pública (última, pra não engolir as rotas acima)
-	routes.get("/p/:slug", (c) => {
+	routes.get("/p/:slug", async (c) => {
 		const slug = c.req.param("slug");
 		c.header("Cache-Control", "no-store, max-age=0");
-		return c.html(publicPageHtml(slug));
+		// Paleta do SEGMENTO (default = marca AGENVA) — load barato 1x/página
+		const loaded = await loadBySlug(db, slug);
+		return c.html(publicPageHtml(slug, loaded?.biz.businessType));
 	});
 
 	// ---- RF-B02..B04: confirmação de presença do cliente (link do WhatsApp)
@@ -479,10 +481,27 @@ export function publicBookingRoutes(databaseUrl: string) {
 }
 
 /** Página standalone: zero build, CSS/JS inline, mobile-first. */
-function publicPageHtml(slug: string): string {
+// ---- Paleta por segmento (espelho dos presets do app Flutter).
+// Default = identidade da MARCA AGENVA (DESIGN.md v2); cor do SEGMENTO
+// vence quando o business tem tipo conhecido (decisão multi-segmento).
+const SEGMENT_PALETTES: Record<string, { p: string; selBg: string }> = {
+	beauty: { p: "#B51F4D", selBg: "#FDF0F4" },
+	barber: { p: "#8B5E34", selBg: "#F3EDE5" },
+	dental: { p: "#1976D2", selBg: "#E8F1FB" },
+	medical: { p: "#00897B", selBg: "#E4F3F1" },
+	auto_detailing: { p: "#37474F", selBg: "#EDF1F3" },
+	pet_grooming: { p: "#F57C00", selBg: "#FEF2E4" },
+	veterinary: { p: "#2E7D32", selBg: "#E9F3EA" },
+	mechanic: { p: "#455A64", selBg: "#EDF1F3" },
+	other: { p: "#5E35B1", selBg: "#F0EAF9" },
+};
+const BRAND_PALETTE = { p: "#1E96E8", selBg: "#E8F3FC" }; // marca AGENVA
+
+function publicPageHtml(slug: string, bizType?: string | null): string {
 	const esc = (s: string) =>
 		s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 	const s = esc(slug);
+	const pal = (bizType && SEGMENT_PALETTES[bizType]) || BRAND_PALETTE;
 	return `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -497,7 +516,7 @@ h1{font-size:1.4rem;margin:8px 0 2px}
 .mut{color:var(--mut);font-size:.9rem}
 .card{background:#fff;border-radius:14px;padding:16px;margin:14px 0;box-shadow:0 1px 4px rgba(0,0,0,.06)}
 .svc{display:flex;justify-content:space-between;align-items:center;padding:12px;border:1.5px solid #eee;border-radius:10px;margin:8px 0;cursor:pointer}
-.svc.sel{border-color:var(--p);background:#FDF0F4}
+.svc.sel{border-color:var(--p);background:var(--selBg)}
 label{display:block;font-size:.85rem;font-weight:600;margin:12px 0 4px}
 input{width:100%;padding:12px;border:1.5px solid #ddd;border-radius:10px;font-size:1rem}
 button{width:100%;padding:14px;border:0;border-radius:12px;background:var(--p);color:#fff;font-size:1rem;font-weight:700;margin-top:16px;cursor:pointer}
@@ -509,7 +528,7 @@ button:disabled{opacity:.5}
 .ok .big{font-size:3rem}
 .slots{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
 .slot{padding:10px 12px;border:1.5px solid #ddd;border-radius:10px;cursor:pointer;font-size:.9rem}
-.slot.sel{border-color:var(--p);background:#FDF0F4;font-weight:700}
+.slot.sel{border-color:var(--p);background:var(--selBg);font-weight:700}
 .slot.off{opacity:.35;text-decoration:line-through;cursor:not-allowed;pointer-events:none}
 </style>
 </head>
@@ -517,6 +536,8 @@ button:disabled{opacity:.5}
 <div id="app"><h1>Carregando…</h1></div>
 <script>
 const SLUG = "${s}";
+document.documentElement.style.setProperty('--p', "${pal.p}");
+document.documentElement.style.setProperty('--selBg', "${pal.selBg}");
 const app = document.getElementById('app');
 let INFO = null, SEL = null, DAY = null;
 
