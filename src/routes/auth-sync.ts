@@ -41,6 +41,24 @@ export function authSyncRoutes(databaseUrl: string) {
 			(typeof body.name === "string" && body.name.trim()) ||
 			authUser.name ||
 			"Profissional";
+		// Segmento pode vir no 1º sync (onboarding passo 0). Se veio e é
+		// válido, define o business já na criação (default segue 'beauty').
+		const SYNC_SEGMENTS = [
+			"beauty",
+			"barber",
+			"dental",
+			"medical",
+			"auto_detailing",
+			"pet_grooming",
+			"veterinary",
+			"mechanic",
+			"other",
+		] as const;
+		const syncSegment =
+			typeof body.business_type === "string" &&
+			(SYNC_SEGMENTS as readonly string[]).includes(body.business_type)
+				? body.business_type
+				: undefined;
 
 		// 1) usuário já existe? (upsert por firebase_uid)
 		const existing = await db
@@ -78,7 +96,7 @@ export function authSyncRoutes(databaseUrl: string) {
 			// Índice 0004 (nome+segmento): no 1º sync o segmento é o default
 			// 'beauty'. Se já existir homônimo, sufixa o uid (app renomeia no
 			// onboarding via PATCH /me).
-			const defaultSegment = "beauty";
+			const defaultSegment = syncSegment ?? "beauty";
 			const clash = await tx
 				.select({ id: businesses.id })
 				.from(businesses)
@@ -98,6 +116,7 @@ export function authSyncRoutes(databaseUrl: string) {
 					.values({
 						name: bizName,
 						slug,
+						...(syncSegment ? { businessType: syncSegment } : {}),
 						subscriptionStatus: "trial",
 						trialEndsAt: trialEnds,
 					})
