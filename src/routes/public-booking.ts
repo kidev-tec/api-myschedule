@@ -432,11 +432,16 @@ export function publicBookingRoutes(databaseUrl: string) {
 		if (appt.status === "pending") {
 			const patch: {
 				status: "confirmed" | "canceled";
+				canceledAt?: Date;
 				canceledReason?: string;
 			} =
 				decide === "confirm"
 					? { status: "confirmed" }
-					: { status: "canceled", canceledReason: "cliente cancelou via link" };
+					: {
+							status: "canceled",
+							canceledAt: new Date(),
+							canceledReason: "cliente cancelou via link",
+						};
 			await db
 				.update(appointments)
 				.set(patch)
