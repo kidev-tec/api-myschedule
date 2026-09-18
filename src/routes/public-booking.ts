@@ -393,7 +393,22 @@ export function publicBookingRoutes(databaseUrl: string) {
 		c.header("Cache-Control", "no-store, max-age=0");
 		// Paleta do SEGMENTO (default = marca AGENVA) — load barato 1x/página
 		const loaded = await loadBySlug(db, slug);
-		return c.html(publicPageHtml(slug, loaded?.biz.businessType));
+		// B8: OG tags + favicon com a logo real — preview do WhatsApp/Telegram
+		// mostra o nome e a logo do negócio (bug reportado por Rafael 18/09).
+		let bizName: string | null = null;
+		let hasLogo = false;
+		if (loaded) {
+			bizName = loaded.biz.name;
+			const [logo] = await db
+				.select({ mime: businesses.logoMime })
+				.from(businesses)
+				.where(eq(businesses.id, loaded.biz.id))
+				.limit(1);
+			hasLogo = Boolean(logo?.mime);
+		}
+		return c.html(
+			publicPageHtml(slug, loaded?.biz.businessType, bizName, hasLogo),
+		);
 	});
 
 	// ---- RF-B02..B04: confirmação de presença do cliente (link do WhatsApp)
@@ -502,17 +517,36 @@ const SEGMENT_PALETTES: Record<string, { p: string; selBg: string }> = {
 };
 const BRAND_PALETTE = { p: "#1E96E8", selBg: "#E8F3FC" }; // marca AGENVA
 
-function publicPageHtml(slug: string, bizType?: string | null): string {
+function publicPageHtml(
+	slug: string,
+	bizType?: string | null,
+	bizName?: string | null,
+	hasLogo?: boolean,
+): string {
 	const esc = (s: string) =>
 		s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 	const s = esc(slug);
 	const pal = (bizType && SEGMENT_PALETTES[bizType]) || BRAND_PALETTE;
+	// B8: OG tags — preview de WhatsApp/Telegram mostra nome + logo do negócio
+	const title = esc(bizName ? `${bizName} — Agende online` : "Agende online");
+	const description = esc(
+		bizName
+			? `Marque seu horário em ${bizName}`
+			: "Marque seu horário online",
+	);
+	const logoUrl = hasLogo ? `/v1/businesses/${s}/logo` : "";
+	const ogTags = `
+<meta property="og:type" content="website">
+<meta property="og:title" content="${title}">
+<meta property="og:description" content="${description}">
+<meta property="og:url" content="/p/${s}">
+${hasLogo ? `<meta property="og:image" content="${logoUrl}">\n<link rel="icon" href="${logoUrl}">` : ""}`;
 	return `<!doctype html>
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agendar horário</title>
+<title>${title}</title>${ogTags}
 <style>
 :root{--p:#B51F4D;--bg:#FAF7F5;--tx:#2B2226;--mut:#8A7B81}
 *{box-sizing:border-box;margin:0}
