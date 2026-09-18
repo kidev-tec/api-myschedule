@@ -83,6 +83,35 @@ describe("RF-07: link público de agendamento", () => {
 		const html = await res.text();
 		expect(html).toContain("<!doctype html>");
 		expect(html).toContain("slug-que-nao-existe");
+		// slug inexistente → sem business → paleta default = MARCA AGENVA
+		expect(html).toContain('--p\', "#1E96E8")');
+	});
+
+	it("GET /p/:slug → paleta do SEGMENTO quando business tem tipo (barber ≠ beauty)", async () => {
+		const uid = `pub-pal-${Date.now()}`;
+		verifyMock.mockImplementation(async (token: string) => {
+			if (token !== uid) throw new Error("invalid");
+			return { uid, email: `${uid}@t.com`, name: "Pro Paleta" };
+		});
+		const h = authed(uid);
+		const syncRes = await app.request("/v1/auth/sync", {
+			method: "POST",
+			headers: { "content-type": "application/json", ...h },
+			body: JSON.stringify({
+				name: `Pro Paleta ${Date.now()}`,
+				business_type: "barber",
+			}),
+		});
+		const slug = ((await syncRes.json()) as { business?: { slug?: string } })
+			.business?.slug as string;
+
+		const res = await app.request(`/p/${slug}`);
+		expect(res.status).toBe(200);
+		const html = await res.text();
+		// âmbar da barbearia (preset do app), NÃO o Rubi nem o azul da marca
+		expect(html).toContain('--p\', "#8B5E34")');
+		// o Rubi continua no mapa de paletas (beauty), mas NUNCA como --p aqui
+		expect(html).not.toContain('--p\', "#B51F4D")');
 	});
 
 	it("fluxo completo: info → book → find-or-create → conflito 409", async () => {
