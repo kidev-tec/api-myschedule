@@ -14,6 +14,7 @@
 
 import { sql } from "drizzle-orm";
 import {
+	boolean,
 	customType,
 	date,
 	index,
@@ -81,6 +82,12 @@ export const businesses = pgTable("businesses", {
 	})("logo_data"),
 	logoMime: varchar("logo_mime", { length: 40 }),
 	logoUpdatedAt: timestamp("logo_updated_at", { withTimezone: true }),
+	// B15: add-on WhatsApp Pro (Cloud API da Meta) — flag OFF por default;
+	// base grátis (wa.me deep link) não depende destes campos.
+	whatsappProEnabled: boolean("whatsapp_pro_enabled")
+		.notNull()
+		.default(false),
+	whatsappPhoneNumberId: varchar("whatsapp_phone_number_id", { length: 64 }),
 	trialReminderSentAt: timestamp("trial_reminder_sent_at", {
 		withTimezone: true,
 	}),
