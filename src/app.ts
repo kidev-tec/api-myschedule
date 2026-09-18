@@ -17,6 +17,7 @@ import {
 	internalRoutes,
 	logoRoutes,
 } from "./routes/infrastructure.js";
+import { schoolRoutes } from "./routes/school.js";
 import { publicBookingRoutes } from "./routes/public-booking.js";
 import { meRoutes, servicesRoutes } from "./routes/services.js";
 import { versionRoutes } from "./routes/version.js";
@@ -86,6 +87,7 @@ export function createApp(opts: {
 	// Logo pública (sem auth — o link de agendamento usa) + rotas internas
 	app.route("/v1", logoRoutes(opts.databaseUrl));
 	app.route("/v1", internalRoutes(opts.databaseUrl));
+	app.route("/v1", schoolRoutes(opts.databaseUrl));
 
 	// RF-07 — link público (sem Firebase auth; rotas /p/*)
 	app.route("/", publicBookingRoutes(opts.databaseUrl));
