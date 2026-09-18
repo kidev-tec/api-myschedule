@@ -183,6 +183,7 @@ export const appointments = pgTable(
 		status: appointmentStatusEnum("status").notNull().default("pending"),
 		source: appointmentSourceEnum("source").notNull().default("app"),
 		canceledReason: text("canceled_reason"),
+		canceledAt: timestamp("canceled_at", { withTimezone: true }),
 		// RF-08: id do evento espelhado no Google Calendar do business
 		gcalEventId: text("gcal_event_id"),
 		createdByUserId: uuid("created_by_user_id").references(() => users.id),
@@ -279,7 +280,7 @@ export const subscriptions = pgTable("subscriptions", {
 export const businessesWithLogo = businesses;
 
 export const deviceTokens = pgTable("device_tokens", {
-	id: serial("id").primaryKey(),
+	id: uuid("id").defaultRandom().primaryKey(),
 	userId: uuid("user_id")
 		.notNull()
 		.references(() => users.id, { onDelete: "cascade" }),
