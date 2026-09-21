@@ -203,7 +203,7 @@ describe("/v1/services", () => {
 		const res = await app.request("/v1/services", {
 			method: "POST",
 			headers: { "content-type": "application/json", ...h },
-			body: JSON.stringify({ name: "", duration_min: 1, price_cents: -5 }),
+			body: JSON.stringify({ name: "", duration_min: 0, price_cents: -5 }),
 		});
 		expect(res.status).toBe(400);
 	});
@@ -494,7 +494,7 @@ describe("/v1/clients", () => {
 					headers: { "content-type": "application/json", ...h },
 					body: JSON.stringify({
 						name: "Longo",
-						duration_min: 601,
+						duration_min: 495,
 						price_cents: 100,
 					}),
 				})
@@ -1026,14 +1026,14 @@ describe("/v1/clients", () => {
 			headers: { "content-type": "application/json", ...h },
 			body: JSON.stringify({
 				name: "Corte",
-				duration_min: 40,
+				duration_min: 30,
 				price_cents: 5000,
 			}),
 		});
 		expect(created.status).toBe(201);
 		const svc = (await created.json()) as { id: string };
 
-		// edita duração pra 40 (agora válido: 5..600) e nome
+		// edita duração pra 45 (válido: 15..480, múltiplo de 15) e nome
 		const patched = await app.request(`/v1/services/${svc.id}`, {
 			method: "PATCH",
 			headers: { "content-type": "application/json", ...h },
@@ -1061,7 +1061,7 @@ describe("/v1/clients", () => {
 				await app.request(`/v1/services/${svc.id}`, {
 					method: "PATCH",
 					headers: { "content-type": "application/json", ...h },
-					body: JSON.stringify({ duration_min: 3 }),
+					body: JSON.stringify({ duration_min: 50 }),
 				})
 			).status,
 		).toBe(400);

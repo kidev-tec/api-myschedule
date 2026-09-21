@@ -15,6 +15,16 @@ import type { AppEnv } from "../types.js";
 
 type Slot = { weekday?: unknown; start_minute?: unknown; end_minute?: unknown };
 
+const DIAS_SEMANA = [
+	"domingo",
+	"segunda-feira",
+	"terça-feira",
+	"quarta-feira",
+	"quinta-feira",
+	"sexta-feira",
+	"sábado",
+];
+
 function toTime(minuteOfDay: unknown): string | null {
 	if (typeof minuteOfDay !== "number" || !Number.isInteger(minuteOfDay))
 		return null;
@@ -22,6 +32,34 @@ function toTime(minuteOfDay: unknown): string | null {
 	const h = Math.floor(minuteOfDay / 60);
 	const m = minuteOfDay % 60;
 	return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`;
+}
+
+/**
+ * Overlap entre intervalos do MESMO dia → 400 com o nome do dia
+ * ("Horários se sobrepõem na terça-feira"). Intervalos que só se
+ * encostam (14:00-16:00 e 16:00-18:00) são válidos.
+ */
+function acharOverlap(
+	parsed: { weekday: number; start: number; end: number }[],
+): string | null {
+	const porDia = new Map<number, { start: number; end: number }[]>();
+	for (const p of parsed) {
+		const lista = porDia.get(p.weekday) ?? [];
+		lista.push({ start: p.start, end: p.end });
+		porDia.set(p.weekday, lista);
+	}
+	for (const [weekday, intervalos] of porDia) {
+		intervalos.sort((a, b) => a.start - b.start);
+		for (let i = 1; i < intervalos.length; i++) {
+			const prev = intervalos[i - 1];
+			const cur = intervalos[i];
+			if (prev && cur && cur.start < prev.end) {
+				/* v8 ignore next -- weekday validado 0..6 antes; fallback defensivo */
+				return DIAS_SEMANA[weekday] ?? `dia ${weekday}`;
+			}
+		}
+	}
+	return null;
 }
 
 export function workingHoursRoutes(databaseUrl: string) {
@@ -66,8 +104,13 @@ export function workingHoursRoutes(databaseUrl: string) {
 			return c.json({ error: "slots deve ser um array" }, 400);
 		}
 
-		const parsed: { weekday: number; startTime: string; endTime: string }[] =
-			[];
+		const parsed: {
+			weekday: number;
+			startTime: string;
+			endTime: string;
+			start: number;
+			end: number;
+		}[] = [];
 		for (const s of slots) {
 			const weekday = s.weekday;
 			const start = toTime(s.start_minute);
@@ -87,7 +130,19 @@ export function workingHoursRoutes(databaseUrl: string) {
 					400,
 				);
 			}
-			parsed.push({ weekday, startTime: start, endTime: end });
+			parsed.push({
+				weekday,
+				startTime: start,
+				endTime: end,
+				start: s.start_minute as number,
+				end: s.end_minute as number,
+			});
+		}
+
+		// BARRA B4: intervalos do mesmo dia não podem se sobrepor
+		const diaOverlap = acharOverlap(parsed);
+		if (diaOverlap) {
+			return c.json({ error: `Horários se sobrepõem na ${diaOverlap}` }, 400);
 		}
 
 		// Replace total numa transação (delete-all + insert)

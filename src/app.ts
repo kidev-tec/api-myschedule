@@ -8,7 +8,9 @@ import { Hono } from "hono";
 import { firebaseAuthMiddleware } from "./middleware/auth.js";
 import { requireWritableFactory } from "./middleware/paywall.js";
 import { appointmentRoutes } from "./routes/appointments.js";
+import { asaasWebhookRoutes } from "./routes/asaas-webhook.js";
 import { authSyncRoutes } from "./routes/auth-sync.js";
+import { billingRoutes } from "./routes/billing.js";
 import { clientsRoutes } from "./routes/clients.js";
 import { docsRoutes } from "./routes/docs.js";
 import { gcalRoutes } from "./routes/gcal.js";
@@ -18,6 +20,7 @@ import {
 	logoRoutes,
 } from "./routes/infrastructure.js";
 import { publicBookingRoutes } from "./routes/public-booking.js";
+import { schoolRoutes } from "./routes/school.js";
 import { meRoutes, servicesRoutes } from "./routes/services.js";
 import { versionRoutes } from "./routes/version.js";
 import { workingHoursRoutes } from "./routes/working-hours.js";
@@ -86,6 +89,15 @@ export function createApp(opts: {
 	// Logo pública (sem auth — o link de agendamento usa) + rotas internas
 	app.route("/v1", logoRoutes(opts.databaseUrl));
 	app.route("/v1", internalRoutes(opts.databaseUrl));
+	app.route("/v1", schoolRoutes(opts.databaseUrl));
+
+	// Billing Asaas (RF-14) — checkout authed + writable (paywall naturalmente
+	// deixa trial ativo passar; a rota é de ESCRITA no banco por natureza)
+	app.route("/v1", billingRoutes(opts.databaseUrl));
+
+	// Webhook do Asaas — público (Asaas não tem Firebase), raiz fora do /v1.
+	// Autenticado pelo header asaas-access-token (não pelo middleware Firebase).
+	app.route("/", asaasWebhookRoutes(opts.databaseUrl));
 
 	// RF-07 — link público (sem Firebase auth; rotas /p/*)
 	app.route("/", publicBookingRoutes(opts.databaseUrl));
