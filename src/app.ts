@@ -10,6 +10,7 @@ import { requireWritableFactory } from "./middleware/paywall.js";
 import { appointmentRoutes } from "./routes/appointments.js";
 import { authSyncRoutes } from "./routes/auth-sync.js";
 import { clientsRoutes } from "./routes/clients.js";
+import { billingRoutes } from "./routes/billing.js";
 import { docsRoutes } from "./routes/docs.js";
 import { gcalRoutes } from "./routes/gcal.js";
 import {
@@ -88,6 +89,10 @@ export function createApp(opts: {
 	app.route("/v1", logoRoutes(opts.databaseUrl));
 	app.route("/v1", internalRoutes(opts.databaseUrl));
 	app.route("/v1", schoolRoutes(opts.databaseUrl));
+
+	// Billing Asaas (RF-14) — checkout authed + writable (paywall naturalmente
+	// deixa trial ativo passar; a rota é de ESCRITA no banco por natureza)
+	app.route("/v1", billingRoutes(opts.databaseUrl));
 
 	// RF-07 — link público (sem Firebase auth; rotas /p/*)
 	app.route("/", publicBookingRoutes(opts.databaseUrl));

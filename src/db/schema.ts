@@ -91,6 +91,10 @@ export const businesses = pgTable("businesses", {
 	trialReminderSentAt: timestamp("trial_reminder_sent_at", {
 		withTimezone: true,
 	}),
+	// Billing Asaas (RF-14): ids de integração. NULL = nunca assinou.
+	// O webhook (Fase B) usa asaas_customer_id pra achar o business.
+	asaasCustomerId: varchar("asaas_customer_id", { length: 64 }),
+	asaasSubscriptionId: varchar("asaas_subscription_id", { length: 64 }),
 	createdAt: timestamp("created_at", { withTimezone: true })
 		.notNull()
 		.defaultNow(),
