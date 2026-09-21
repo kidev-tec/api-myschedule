@@ -410,13 +410,7 @@ export function publicBookingRoutes(databaseUrl: string) {
 		// caminho relativo — pitfall B8). Origem vem do próprio request.
 		const origin = new URL(c.req.url).origin;
 		return c.html(
-			publicPageHtml(
-				slug,
-				origin,
-				loaded?.biz.businessType,
-				bizName,
-				hasLogo,
-			),
+			publicPageHtml(slug, origin, loaded?.biz.businessType, bizName, hasLogo),
 		);
 	});
 

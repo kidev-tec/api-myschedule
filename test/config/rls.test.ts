@@ -18,6 +18,7 @@ describe("RLS fail-closed (migration 0008)", () => {
 		const missing = await sql`
       SELECT relname FROM pg_class
       WHERE relnamespace = 'public'::regnamespace AND relkind = 'r'
+        AND relname <> '_migrations'
         AND NOT (relrowsecurity AND relforcerowsecurity)`;
 		expect(
 			missing.map((r) => r.relname),

@@ -195,7 +195,9 @@ describe("POST /v1/billing/checkout", () => {
 		expect(subBody).toMatchObject({ value: 29.9, cycle: "MONTHLY" });
 
 		// customer criado com o cpfCnpj normalizado
-		const [custUrl2, custInit] = fetchMock.mock.calls[0];
+		const custCall = fetchMock.mock.calls[0];
+		if (!custCall) throw new Error("1ª chamada fetch não aconteceu");
+		const [custUrl2, custInit] = custCall;
 		expect(String(custUrl2)).toContain("/v3/customers");
 		expect(JSON.parse(custInit?.body as string).cpfCnpj).toBe("20447670824");
 	});
