@@ -46,11 +46,13 @@ function authed(uidValue: string) {
 }
 
 async function createdUser(headers: Record<string, string>) {
+	const auth = headers.Authorization;
+	if (!auth) throw new Error("Authorization ausente");
 	const res = await app.request("/v1/auth/sync", {
 		method: "POST",
 		headers: { "content-type": "application/json", ...headers },
 		body: JSON.stringify({
-			name: `Pro Teste ${headers.Authorization.slice(7)}`,
+			name: `Pro Teste ${auth.slice(7)}`,
 		}),
 	});
 	expect(res.status).toBe(201);
@@ -228,20 +230,25 @@ describe("ARCHIVE (B3) — arquivado some do futuro, fica no passado", () => {
 
 		// cria cliente e agendamento PASSADO com esse serviço (direto no banco,
 		// depois arquiva o serviço e vê se o histórico sobrevive)
-		const bizRows = await sql<{ id: string }>`
-			SELECT id FROM businesses WHERE name LIKE ${`Pro Teste ${h.Authorization.slice(7)}%`} LIMIT 1`;
+		const auth = h.Authorization;
+		if (!auth) throw new Error("Authorization ausente");
+		const bizRows = await sql<{ id: string }[]>`
+			SELECT id FROM businesses WHERE name LIKE ${`Pro Teste ${auth.slice(7)}%`} LIMIT 1`;
 		const businessId = bizRows[0]?.id;
-		expect(businessId).toBeTruthy();
-		const client = await sql<{ id: string }>`
+		if (!businessId) throw new Error("business não encontrado");
+		const client = await sql<{ id: string }[]>`
 			INSERT INTO clients (business_id, name, phone_e164)
 			VALUES (${businessId}, 'Cli', '+5514999980001') RETURNING id`;
-		const userRows = await sql<{ id: string }>`
+		const userRows = await sql<{ id: string }[]>`
 			SELECT id FROM users WHERE business_id = ${businessId} LIMIT 1`;
 		const start = new Date(Date.now() - 2 * 86400_000);
 		const end = new Date(start.getTime() + 1800_000);
+		const clientId = client[0]?.id;
+		const userId = userRows[0]?.id;
+		if (!clientId || !userId) throw new Error("client/user não encontrados");
 		await sql`
 			INSERT INTO appointments (business_id, client_id, service_id, user_id, starts_at, ends_at, status)
-			VALUES (${businessId}, ${client[0].id}, ${svc.id}, ${userRows[0].id}, ${start.toISOString()}, ${end.toISOString()}, 'done')`;
+			VALUES (${businessId}, ${clientId}, ${svc.id}, ${userId}, ${start.toISOString()}, ${end.toISOString()}, 'done')`;
 
 		// arquiva o serviço
 		await app.request(`/v1/services/${svc.id}`, {

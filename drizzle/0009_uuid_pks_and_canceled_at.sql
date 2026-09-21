@@ -18,6 +18,7 @@ ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_pkey;
 ALTER TABLE appointments ALTER COLUMN id DROP DEFAULT;
 DROP SEQUENCE IF EXISTS appointments_id_seq CASCADE;
 ALTER TABLE appointments ALTER COLUMN id TYPE uuid USING gen_random_uuid();
+ALTER TABLE appointments ALTER COLUMN id SET DEFAULT gen_random_uuid();
 ALTER TABLE appointments ADD PRIMARY KEY (id);
 
 -- transactions
@@ -25,6 +26,7 @@ ALTER TABLE transactions DROP CONSTRAINT IF EXISTS transactions_pkey;
 ALTER TABLE transactions ALTER COLUMN id DROP DEFAULT;
 DROP SEQUENCE IF EXISTS transactions_id_seq CASCADE;
 ALTER TABLE transactions ALTER COLUMN id TYPE uuid USING gen_random_uuid();
+ALTER TABLE transactions ALTER COLUMN id SET DEFAULT gen_random_uuid();
 ALTER TABLE transactions ADD PRIMARY KEY (id);
 
 -- loyalty_cards
@@ -32,6 +34,7 @@ ALTER TABLE loyalty_cards DROP CONSTRAINT IF EXISTS loyalty_cards_pkey;
 ALTER TABLE loyalty_cards ALTER COLUMN id DROP DEFAULT;
 DROP SEQUENCE IF EXISTS loyalty_cards_id_seq CASCADE;
 ALTER TABLE loyalty_cards ALTER COLUMN id TYPE uuid USING gen_random_uuid();
+ALTER TABLE loyalty_cards ALTER COLUMN id SET DEFAULT gen_random_uuid();
 ALTER TABLE loyalty_cards ADD PRIMARY KEY (id);
 
 -- device_tokens
@@ -39,6 +42,7 @@ ALTER TABLE device_tokens DROP CONSTRAINT IF EXISTS device_tokens_pkey;
 ALTER TABLE device_tokens ALTER COLUMN id DROP DEFAULT;
 DROP SEQUENCE IF EXISTS device_tokens_id_seq CASCADE;
 ALTER TABLE device_tokens ALTER COLUMN id TYPE uuid USING gen_random_uuid();
+ALTER TABLE device_tokens ALTER COLUMN id SET DEFAULT gen_random_uuid();
 ALTER TABLE device_tokens ADD PRIMARY KEY (id);
 
 -- ===== 3. Recriar FKs (appointments.id já é UUID) =====
@@ -54,6 +58,3 @@ ALTER TABLE appointments        ENABLE ROW LEVEL SECURITY; ALTER TABLE appointme
 ALTER TABLE transactions        ENABLE ROW LEVEL SECURITY; ALTER TABLE transactions        FORCE  ROW LEVEL SECURITY;
 ALTER TABLE loyalty_cards       ENABLE ROW LEVEL SECURITY; ALTER TABLE loyalty_cards       FORCE  ROW LEVEL SECURITY;
 ALTER TABLE device_tokens       ENABLE ROW LEVEL SECURITY; ALTER TABLE device_tokens       FORCE  ROW LEVEL SECURITY;
-
--- ===== 6. Registra =====
-INSERT INTO _migrations (name) VALUES ('0009_uuid_pks_and_canceled_at.sql') ON CONFLICT DO NOTHING;

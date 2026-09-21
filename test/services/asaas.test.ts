@@ -129,7 +129,9 @@ describe("updateCustomerCpf", () => {
 		const cfg = loadAsaasConfig({ ASAAS_API_KEY: "k" });
 		if (cfg === null) throw new Error("config deveria estar ativa");
 		await updateCustomerCpf(cfg, "cus_1", "20447670824");
-		const [url, init] = fetchMock.mock.calls[0];
+		const call = fetchMock.mock.calls[0];
+		if (!call) throw new Error("fetch não foi chamado");
+		const [url, init] = call;
 		expect(String(url)).toBe(
 			"https://api-sandbox.asaas.com/v3/customers/cus_1",
 		);

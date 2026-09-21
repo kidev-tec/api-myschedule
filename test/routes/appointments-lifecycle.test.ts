@@ -50,11 +50,13 @@ function authed(uidValue: string) {
 }
 
 async function createdUser(headers: Record<string, string>) {
+	const auth = headers.Authorization;
+	if (!auth) throw new Error("Authorization ausente");
 	const res = await app.request("/v1/auth/sync", {
 		method: "POST",
 		headers: { "content-type": "application/json", ...headers },
 		body: JSON.stringify({
-			name: `Pro Teste ${headers.Authorization.slice(7)}`,
+			name: `Pro Teste ${auth.slice(7)}`,
 		}),
 	});
 	expect(res.status).toBe(201);
@@ -62,23 +64,28 @@ async function createdUser(headers: Record<string, string>) {
 
 async function setupBase(headers: Record<string, string>) {
 	await createdUser(headers);
-	const meUid = headers.Authorization.slice(7);
+	const auth = headers.Authorization;
+	if (!auth) throw new Error("Authorization ausente");
+	const meUid = auth.slice(7);
 	const biz = (
 		await sql<{ id: string }[]>`
 			SELECT b.id FROM businesses b JOIN users u ON u.business_id = b.id
 			WHERE u.firebase_uid = ${meUid} LIMIT 1`
 	)[0];
+	if (!biz) throw new Error("business não encontrado");
 	const client = (
 		await sql<{ id: string }[]>`
 		INSERT INTO clients (business_id, name, phone_e164)
 		VALUES (${biz.id}, 'Cli', ${"+551499990" + String(seq).padStart(4, "0")})
 		RETURNING id`
 	)[0];
+	if (!client) throw new Error("client não criado");
 	const service = (
 		await sql<{ id: string }[]>`
 		INSERT INTO services (business_id, name, duration_min, price_cents)
 		VALUES (${biz.id}, 'Corte', 30, 5000) RETURNING id`
 	)[0];
+	if (!service) throw new Error("service não criado");
 	return { businessId: biz.id, clientId: client.id, serviceId: service.id };
 }
 

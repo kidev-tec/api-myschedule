@@ -46,11 +46,13 @@ function authed(uidValue: string) {
 }
 
 async function createdUser(headers: Record<string, string>) {
+	const auth = headers.Authorization;
+	if (!auth) throw new Error("Authorization ausente");
 	const res = await app.request("/v1/auth/sync", {
 		method: "POST",
 		headers: { "content-type": "application/json", ...headers },
 		body: JSON.stringify({
-			name: `Pro Teste ${headers.Authorization.slice(7)}`,
+			name: `Pro Teste ${auth.slice(7)}`,
 		}),
 	});
 	expect(res.status).toBe(201);
@@ -194,7 +196,11 @@ describe("validações gerais (regressão P4)", () => {
 		const h = authed(uid());
 		await createdUser(h);
 		const res = await putHours(h, [
-			{ weekday: 5, start_minute: "09:00", end_minute: 720 },
+			{
+				weekday: 5,
+				start_minute: "09:00" as unknown as number,
+				end_minute: 720,
+			},
 		]);
 		expect(res.status).toBe(400);
 	});

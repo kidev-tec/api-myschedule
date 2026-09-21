@@ -47,11 +47,13 @@ function authed(uidValue: string) {
 }
 
 async function createdUser(headers: Record<string, string>) {
+	const auth = headers.Authorization;
+	if (!auth) throw new Error("Authorization ausente");
 	const res = await app.request("/v1/auth/sync", {
 		method: "POST",
 		headers: { "content-type": "application/json", ...headers },
 		body: JSON.stringify({
-			name: `Pro Teste ${headers.Authorization.slice(7)}`,
+			name: `Pro Teste ${auth.slice(7)}`,
 		}),
 	});
 	expect(res.status).toBe(201);
