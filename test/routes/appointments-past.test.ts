@@ -45,31 +45,36 @@ function authed(uidValue: string) {
 }
 
 async function setupBase(headers: Record<string, string>) {
+	const auth = headers.Authorization;
+	if (!auth) throw new Error("Authorization ausente");
 	const res = await app.request("/v1/auth/sync", {
 		method: "POST",
 		headers: { "content-type": "application/json", ...headers },
 		body: JSON.stringify({
-			name: `Pro Teste ${headers.Authorization.slice(7)}`,
+			name: `Pro Teste ${auth.slice(7)}`,
 		}),
 	});
 	expect(res.status).toBe(201);
-	const meUid = headers.Authorization.slice(7);
+	const meUid = auth.slice(7);
 	const biz = (
 		await sql<{ id: string }[]>`
 			SELECT b.id FROM businesses b JOIN users u ON u.business_id = b.id
 			WHERE u.firebase_uid = ${meUid} LIMIT 1`
 	)[0];
+	if (!biz) throw new Error("business não encontrado");
 	const client = (
 		await sql<{ id: string }[]>`
 		INSERT INTO clients (business_id, name, phone_e164)
 		VALUES (${biz.id}, 'Cli', ${"+5511" + String(90000000 + seq).slice(0, 8)})
 		RETURNING id`
 	)[0];
+	if (!client) throw new Error("client não criado");
 	const service = (
 		await sql<{ id: string }[]>`
 		INSERT INTO services (business_id, name, duration_min, price_cents)
 		VALUES (${biz.id}, 'Corte', 30, 5000) RETURNING id`
 	)[0];
+	if (!service) throw new Error("service não criado");
 	return { businessId: biz.id, clientId: client.id, serviceId: service.id };
 }
 
@@ -168,6 +173,22 @@ describe("horário passado não muda de estado (produto 21/09)", () => {
 			method: "PATCH",
 			headers: { "content-type": "application/json", ...h },
 			body: JSON.stringify({ status: "confirmed", startsAt: iso(7200_000) }),
+		});
+		expect(res.status).toBe(200);
+	});
+
+	it("status + só endsAt (sem startsAt) cobre fallback newStart → 200", async () => {
+		const h = authed(uid());
+		const base = await setupBase(h);
+		const id = await createAppt(h, base, iso(-3600_000));
+
+		const res = await app.request(`/v1/appointments/${id}`, {
+			method: "PATCH",
+			headers: { "content-type": "application/json", ...h },
+			body: JSON.stringify({
+				status: "confirmed",
+				endsAt: iso(1800_000),
+			}),
 		});
 		expect(res.status).toBe(200);
 	});
