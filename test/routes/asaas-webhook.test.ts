@@ -4,7 +4,15 @@
  */
 import { eq } from "drizzle-orm";
 import postgres from "postgres";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
 
 const verifyMock = vi.hoisted(() => vi.fn());
 vi.mock("firebase-admin/auth", () => ({
@@ -16,9 +24,11 @@ vi.mock("firebase-admin/app", () => ({
 
 import { createApp } from "../../src/app.js";
 import { getDb } from "../../src/db/connection.js";
-import { asaasWebhookRoutes } from "../../src/routes/asaas-webhook.js";
-import { eventToStatus } from "../../src/routes/asaas-webhook.js";
 import { businesses } from "../../src/db/schema.js";
+import {
+	asaasWebhookRoutes,
+	eventToStatus,
+} from "../../src/routes/asaas-webhook.js";
 
 const DATABASE_URL =
 	process.env.TEST_DATABASE_URL ??
@@ -229,7 +239,10 @@ describe("POST /webhooks/asaas", () => {
 	it("body quebrado → 200 (não dar 4xx pro Asaas re-tentar forever)", async () => {
 		const res = await webhookApp.request("/webhooks/asaas", {
 			method: "POST",
-			headers: { "content-type": "application/json", "asaas-access-token": TOKEN },
+			headers: {
+				"content-type": "application/json",
+				"asaas-access-token": TOKEN,
+			},
 			body: "isto não é json{{{",
 		});
 		expect(res.status).toBe(200);

@@ -49,7 +49,9 @@ async function createdUser(headers: Record<string, string>) {
 	const res = await app.request("/v1/auth/sync", {
 		method: "POST",
 		headers: { "content-type": "application/json", ...headers },
-		body: JSON.stringify({ name: `Pro Teste ${headers.Authorization.slice(7)}` }),
+		body: JSON.stringify({
+			name: `Pro Teste ${headers.Authorization.slice(7)}`,
+		}),
 	});
 	expect(res.status).toBe(201);
 }
@@ -98,7 +100,11 @@ describe("POST /v1/services — validação de duração (B3)", () => {
 			const res = await app.request("/v1/services", {
 				method: "POST",
 				headers: { "content-type": "application/json", ...h },
-				body: JSON.stringify({ name: `S${d}`, duration_min: d, price_cents: 0 }),
+				body: JSON.stringify({
+					name: `S${d}`,
+					duration_min: d,
+					price_cents: 0,
+				}),
 			});
 			expect(res.status).toBe(201);
 		}
@@ -238,7 +244,10 @@ describe("ARCHIVE (B3) — arquivado some do futuro, fica no passado", () => {
 			VALUES (${businessId}, ${client[0].id}, ${svc.id}, ${userRows[0].id}, ${start.toISOString()}, ${end.toISOString()}, 'done')`;
 
 		// arquiva o serviço
-		await app.request(`/v1/services/${svc.id}`, { method: "DELETE", headers: h });
+		await app.request(`/v1/services/${svc.id}`, {
+			method: "DELETE",
+			headers: h,
+		});
 
 		// booking público: serviço NÃO aparece para novos agendamentos
 		const publicServices = await app.request(

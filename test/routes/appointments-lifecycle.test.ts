@@ -53,7 +53,9 @@ async function createdUser(headers: Record<string, string>) {
 	const res = await app.request("/v1/auth/sync", {
 		method: "POST",
 		headers: { "content-type": "application/json", ...headers },
-		body: JSON.stringify({ name: `Pro Teste ${headers.Authorization.slice(7)}` }),
+		body: JSON.stringify({
+			name: `Pro Teste ${headers.Authorization.slice(7)}`,
+		}),
 	});
 	expect(res.status).toBe(201);
 }
@@ -64,14 +66,19 @@ async function setupBase(headers: Record<string, string>) {
 	const biz = (
 		await sql<{ id: string }[]>`
 			SELECT b.id FROM businesses b JOIN users u ON u.business_id = b.id
-			WHERE u.firebase_uid = ${meUid} LIMIT 1`)[0];
-	const client = (await sql<{ id: string }[]>`
+			WHERE u.firebase_uid = ${meUid} LIMIT 1`
+	)[0];
+	const client = (
+		await sql<{ id: string }[]>`
 		INSERT INTO clients (business_id, name, phone_e164)
 		VALUES (${biz.id}, 'Cli', ${"+551499990" + String(seq).padStart(4, "0")})
-		RETURNING id`)[0];
-	const service = (await sql<{ id: string }[]>`
+		RETURNING id`
+	)[0];
+	const service = (
+		await sql<{ id: string }[]>`
 		INSERT INTO services (business_id, name, duration_min, price_cents)
-		VALUES (${biz.id}, 'Corte', 30, 5000) RETURNING id`)[0];
+		VALUES (${biz.id}, 'Corte', 30, 5000) RETURNING id`
+	)[0];
 	return { businessId: biz.id, clientId: client.id, serviceId: service.id };
 }
 
@@ -165,11 +172,14 @@ describe("B5 — ciclo marcar → remarcar → cancelar", () => {
 
 		// muda SÓ o início → 30 min após o novo início
 		const novoInicio = new Date(futureDate(40));
-		const rescheduled = await app.request(`/v1/appointments/${appointment.id}`, {
-			method: "PATCH",
-			headers: { "content-type": "application/json", ...h },
-			body: JSON.stringify({ startsAt: novoInicio.toISOString() }),
-		});
+		const rescheduled = await app.request(
+			`/v1/appointments/${appointment.id}`,
+			{
+				method: "PATCH",
+				headers: { "content-type": "application/json", ...h },
+				body: JSON.stringify({ startsAt: novoInicio.toISOString() }),
+			},
+		);
 		expect(rescheduled.status).toBe(200);
 		const { appointment: nova } = (await rescheduled.json()) as {
 			appointment: { startsAt: string; endsAt: string };
@@ -199,11 +209,14 @@ describe("B5 — ciclo marcar → remarcar → cancelar", () => {
 		};
 
 		const novoFim = futureDate(16);
-		const rescheduled = await app.request(`/v1/appointments/${appointment.id}`, {
-			method: "PATCH",
-			headers: { "content-type": "application/json", ...h },
-			body: JSON.stringify({ endsAt: novoFim }),
-		});
+		const rescheduled = await app.request(
+			`/v1/appointments/${appointment.id}`,
+			{
+				method: "PATCH",
+				headers: { "content-type": "application/json", ...h },
+				body: JSON.stringify({ endsAt: novoFim }),
+			},
+		);
 		expect(rescheduled.status).toBe(200);
 		const { appointment: nova } = (await rescheduled.json()) as {
 			appointment: { startsAt: string; endsAt: string };
@@ -242,7 +255,9 @@ describe("B5 — ciclo marcar → remarcar → cancelar", () => {
 		});
 		expect(canceled.status).toBe(200);
 
-		const rows = await sql<{ canceled_at: Date | null; canceled_reason: string | null }[]>`
+		const rows = await sql<
+			{ canceled_at: Date | null; canceled_reason: string | null }[]
+		>`
 			SELECT canceled_at, canceled_reason FROM appointments WHERE id = ${appointment.id}`;
 		expect(rows[0]?.canceled_at).not.toBeNull();
 		expect(rows[0]?.canceled_reason).toBe("cliente pediu pra cancelar");

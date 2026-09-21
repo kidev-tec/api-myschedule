@@ -382,7 +382,8 @@ export const openApiSpec = {
 								properties: {
 									cpf_cnpj: {
 										type: "string",
-										description: "CPF (11) ou CNPJ (14) do pagador, com ou sem máscara",
+										description:
+											"CPF (11) ou CNPJ (14) do pagador, com ou sem máscara",
 									},
 								},
 							},
@@ -402,7 +403,8 @@ export const openApiSpec = {
 			post: {
 				tags: ["Billing"],
 				summary: "Webhook do Asaas (eventos de pagamento/assinatura)",
-				description: "Público; autenticado pelo header asaas-access-token. É a única fonte de verdade do subscription_status.",
+				description:
+					"Público; autenticado pelo header asaas-access-token. É a única fonte de verdade do subscription_status.",
 				parameters: [
 					{
 						name: "asaas-access-token",
@@ -411,7 +413,10 @@ export const openApiSpec = {
 						schema: { type: "string" },
 					},
 				],
-				responses: { "200": { description: "OK (processado ou ignorado)" }, "401": { description: "Token inválido" } },
+				responses: {
+					"200": { description: "OK (processado ou ignorado)" },
+					"401": { description: "Token inválido" },
+				},
 			},
 		},
 		"/v1/appointments": {

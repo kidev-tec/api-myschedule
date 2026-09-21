@@ -29,7 +29,9 @@ export function loadAsaasConfig(
 	const cents = Number(env.ASAAS_PLAN_VALUE ?? "");
 	return {
 		apiKey,
-		baseUrl: (env.ASAAS_BASE_URL ?? ASASA_DEFAULT_BASE_URL).replace(/\/$/, ""),
+		baseUrl: (env.ASAAS_BASE_URL ?? ASASA_DEFAULT_BASE_URL)
+			.replace(/\/$/, "")
+			.replace(/\/v3$/, ""),
 		planValueCents: Number.isInteger(cents) && cents > 0 ? cents : 0,
 	};
 }

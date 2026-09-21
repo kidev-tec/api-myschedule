@@ -82,9 +82,13 @@ describe("GET /p/:slug — OG tags + logo (B8)", () => {
 		expect(res.status).toBe(200);
 		const html = await res.text();
 		expect(html).toContain(`og:title" content="${name} — Agende online"`);
-		expect(html).toContain(`og:description" content="Marque seu horário em ${name}"`);
+		expect(html).toContain(
+			`og:description" content="Marque seu horário em ${name}"`,
+		);
 		expect(html).toContain(`og:image" content="/v1/businesses/${slug}/logo"`);
-		expect(html).toContain(`<link rel="icon" href="/v1/businesses/${slug}/logo">`);
+		expect(html).toContain(
+			`<link rel="icon" href="/v1/businesses/${slug}/logo">`,
+		);
 	});
 
 	it("sem logo: og:title com nome, mas SEM og:image/favicon", async () => {

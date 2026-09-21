@@ -8,10 +8,10 @@ import { Hono } from "hono";
 import { firebaseAuthMiddleware } from "./middleware/auth.js";
 import { requireWritableFactory } from "./middleware/paywall.js";
 import { appointmentRoutes } from "./routes/appointments.js";
-import { authSyncRoutes } from "./routes/auth-sync.js";
-import { clientsRoutes } from "./routes/clients.js";
 import { asaasWebhookRoutes } from "./routes/asaas-webhook.js";
+import { authSyncRoutes } from "./routes/auth-sync.js";
 import { billingRoutes } from "./routes/billing.js";
+import { clientsRoutes } from "./routes/clients.js";
 import { docsRoutes } from "./routes/docs.js";
 import { gcalRoutes } from "./routes/gcal.js";
 import {
@@ -19,8 +19,8 @@ import {
 	internalRoutes,
 	logoRoutes,
 } from "./routes/infrastructure.js";
-import { schoolRoutes } from "./routes/school.js";
 import { publicBookingRoutes } from "./routes/public-booking.js";
+import { schoolRoutes } from "./routes/school.js";
 import { meRoutes, servicesRoutes } from "./routes/services.js";
 import { versionRoutes } from "./routes/version.js";
 import { workingHoursRoutes } from "./routes/working-hours.js";

@@ -8,9 +8,9 @@
  * evento desconhecido/customer desconhecido → 200 com log.
  */
 
+import { timingSafeEqual } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
-import { timingSafeEqual } from "node:crypto";
 import { type Db, getDb } from "../db/connection.js";
 import { businesses } from "../db/schema.js";
 import type { AppEnv } from "../types.js";

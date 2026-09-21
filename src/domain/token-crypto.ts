@@ -7,7 +7,12 @@
  * (modo legado de dev; em prod a env é obrigatória).
  */
 
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import {
+	createCipheriv,
+	createDecipheriv,
+	createHash,
+	randomBytes,
+} from "node:crypto";
 
 const IV_LEN = 12;
 const TAG_LEN = 16;

@@ -152,6 +152,14 @@ describe("POST /v1/billing/checkout", () => {
 					JSON.stringify({ id: "sub_new", invoiceUrl: "https://pay/x" }),
 					{ status: 200 },
 				),
+			)
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						data: [{ invoiceUrl: "https://pay/x" }],
+					}),
+					{ status: 200 },
+				),
 			);
 
 		const res = await app.request("/v1/billing/checkout", {
@@ -161,7 +169,7 @@ describe("POST /v1/billing/checkout", () => {
 		});
 		expect(res.status).toBe(201);
 		expect(await res.json()).toEqual({ invoiceUrl: "https://pay/x" });
-		expect(fetchMock).toHaveBeenCalledTimes(2);
+		expect(fetchMock).toHaveBeenCalledTimes(3); // customer + subscription + payments
 
 		// ids persistidos no business
 		const db = getDb(DATABASE_URL);
@@ -208,6 +216,14 @@ describe("POST /v1/billing/checkout", () => {
 			)
 			.mockResolvedValueOnce(
 				new Response(JSON.stringify({ id: "sub_new2" }), { status: 200 }),
+			)
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						data: [{ invoiceUrl: "https://pay/x2" }],
+					}),
+					{ status: 200 },
+				),
 			);
 
 		const res = await app.request("/v1/billing/checkout", {
@@ -216,7 +232,7 @@ describe("POST /v1/billing/checkout", () => {
 			body: JSON.stringify({ cpf_cnpj: "20447670824" }),
 		});
 		expect(res.status).toBe(201);
-		expect(fetchMock).toHaveBeenCalledTimes(2); // update CPF + subscription
+		expect(fetchMock).toHaveBeenCalledTimes(3); // update CPF + subscription + payments
 		const reuseCall = fetchMock.mock.calls[0];
 		if (!reuseCall) throw new Error("fetch não chamado");
 		const [custUrl] = reuseCall;
@@ -257,5 +273,83 @@ describe("POST /v1/billing/checkout", () => {
 		expect(await res.json()).toEqual({
 			error: "Cobrança indisponível no momento",
 		});
+	});
+
+	it("usa bankSlipUrl quando o payment não tem invoiceUrl", async () => {
+		vi.stubEnv("ASAAS_API_KEY", "k");
+		vi.stubEnv("ASAAS_PLAN_VALUE", "2990");
+		const u = await createUser("Pro Teste Billing Slip");
+		// payments sem invoiceUrl, sem bankSlipUrl, e data vazio → null
+		fetchMock
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ id: "cus_s" }), { status: 200 }),
+			)
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ id: "sub_s" }), { status: 200 }),
+			)
+			.mockResolvedValue(
+				new Response(
+					JSON.stringify({
+						data: [{ bankSlipUrl: "https://pay/slip.pdf" }],
+					}),
+					{ status: 200 },
+				),
+			);
+		const res = await app.request("/v1/billing/checkout", {
+			method: "POST",
+			headers: { "content-type": "application/json", ...authed(u) },
+			body: JSON.stringify({ cpf_cnpj: "20447670824" }),
+		});
+		expect(res.status).toBe(201);
+		expect(await res.json()).toEqual({ invoiceUrl: "https://pay/slip.pdf" });
+	});
+
+	it("GET /payments com erro HTTP → invoiceUrl null (fail-closed)", {
+		timeout: 20000,
+	}, async () => {
+		vi.stubEnv("ASAAS_API_KEY", "k");
+		vi.stubEnv("ASAAS_PLAN_VALUE", "2990");
+		const u = await createUser("Pro Teste Billing PayErr");
+		fetchMock
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ id: "cus_e" }), { status: 200 }),
+			)
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ id: "sub_e" }), { status: 200 }),
+			)
+			.mockResolvedValue(new Response("erro", { status: 500 }));
+		const res = await app.request("/v1/billing/checkout", {
+			method: "POST",
+			headers: { "content-type": "application/json", ...authed(u) },
+			body: JSON.stringify({ cpf_cnpj: "20447670824" }),
+		});
+		// checkout criado (201); só a busca da URL falhou (best-effort)
+		expect(res.status).toBe(201);
+		expect(await res.json()).toEqual({ invoiceUrl: null });
+	});
+
+	it("pagamentos sem URL nenhuma → invoiceUrl null após os retries", {
+		timeout: 30000,
+	}, async () => {
+		vi.stubEnv("ASAAS_API_KEY", "k");
+		vi.stubEnv("ASAAS_PLAN_VALUE", "2990");
+		const u = await createUser("Pro Teste Billing Null");
+		fetchMock
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ id: "cus_n" }), { status: 200 }),
+			)
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ id: "sub_n" }), { status: 200 }),
+			)
+			.mockResolvedValue(
+				new Response(JSON.stringify({ data: [] }), { status: 200 }),
+			);
+		const res = await app.request("/v1/billing/checkout", {
+			method: "POST",
+			headers: { "content-type": "application/json", ...authed(u) },
+			body: JSON.stringify({ cpf_cnpj: "20447670824" }),
+		});
+		expect(res.status).toBe(201);
+		expect(await res.json()).toEqual({ invoiceUrl: null });
 	});
 });

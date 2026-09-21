@@ -530,9 +530,7 @@ function publicPageHtml(
 	// B8: OG tags — preview de WhatsApp/Telegram mostra nome + logo do negócio
 	const title = esc(bizName ? `${bizName} — Agende online` : "Agende online");
 	const description = esc(
-		bizName
-			? `Marque seu horário em ${bizName}`
-			: "Marque seu horário online",
+		bizName ? `Marque seu horário em ${bizName}` : "Marque seu horário online",
 	);
 	const logoUrl = hasLogo ? `/v1/businesses/${s}/logo` : "";
 	const ogTags = `

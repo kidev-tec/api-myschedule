@@ -8,7 +8,11 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
-import { decryptToken, encryptToken, isEncrypted } from "../../src/domain/token-crypto.js";
+import {
+	decryptToken,
+	encryptToken,
+	isEncrypted,
+} from "../../src/domain/token-crypto.js";
 
 const KEY = "chave-de-teste-super-secreta-32b";
 

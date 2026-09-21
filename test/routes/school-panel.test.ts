@@ -44,7 +44,11 @@ const H = { "x-school-key": SCHOOL_KEY };
 let seq = 0;
 const uid = () => `test-uid-${Date.now()}-${seq++}`;
 
-async function makeBusiness(name: string, trialEndsAt: Date | null, status = "trial") {
+async function makeBusiness(
+	name: string,
+	trialEndsAt: Date | null,
+	status = "trial",
+) {
 	verifyMock.mockImplementation(async (t: string) => ({
 		uid: t,
 		email: `${t}@t.com`,
@@ -54,7 +58,10 @@ async function makeBusiness(name: string, trialEndsAt: Date | null, status = "tr
 	const unique = `${name} ${Date.now()}-${seq++}`;
 	const sync = await app.request("/v1/auth/sync", {
 		method: "POST",
-		headers: { "content-type": "application/json", authorization: `Bearer ${u}` },
+		headers: {
+			"content-type": "application/json",
+			authorization: `Bearer ${u}`,
+		},
 		body: JSON.stringify({ name: unique }),
 	});
 	expect(sync.status).toBe(201);
@@ -107,12 +114,27 @@ describe("auth do painel escola (B10)", () => {
 describe("GET /internal/school/subscribers", () => {
 	it("lista assinantes com flags expiring/expired", async () => {
 		const now = Date.now();
-		const { businessId: bizA, name: nameA } = await makeBusiness("School Test A", new Date(now + 2 * 86_400_000)); // expiring
-		const { name: nameB } = await makeBusiness("School Test B", new Date(now - 1 * 86_400_000)); // expired
-		const { name: nameC } = await makeBusiness("School Test C", new Date(now + 20 * 86_400_000)); // ok
-		const { name: nameD } = await makeBusiness("School Test D", new Date(now + 30 * 86_400_000), "active");
+		const { businessId: bizA, name: nameA } = await makeBusiness(
+			"School Test A",
+			new Date(now + 2 * 86_400_000),
+		); // expiring
+		const { name: nameB } = await makeBusiness(
+			"School Test B",
+			new Date(now - 1 * 86_400_000),
+		); // expired
+		const { name: nameC } = await makeBusiness(
+			"School Test C",
+			new Date(now + 20 * 86_400_000),
+		); // ok
+		const { name: nameD } = await makeBusiness(
+			"School Test D",
+			new Date(now + 30 * 86_400_000),
+			"active",
+		);
 
-		const res = await app.request("/v1/internal/school/subscribers", { headers: H });
+		const res = await app.request("/v1/internal/school/subscribers", {
+			headers: H,
+		});
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as {
 			subscribers: {
@@ -149,9 +171,7 @@ describe("GET /internal/school/subscribers", () => {
 			subscribers: { name: string; expiring: boolean; expired: boolean }[];
 		};
 		expect(body.subscribers.length).toBeGreaterThanOrEqual(2);
-		expect(
-			body.subscribers.every((s) => s.expiring || s.expired),
-		).toBe(true);
+		expect(body.subscribers.every((s) => s.expiring || s.expired)).toBe(true);
 	});
 });
 
@@ -258,7 +278,9 @@ describe("POST /internal/school/renew", () => {
 		const res = await app.request("/v1/internal/school/renew", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ business_id: "00000000-0000-0000-0000-000000000001" }),
+			body: JSON.stringify({
+				business_id: "00000000-0000-0000-0000-000000000001",
+			}),
 		});
 		expect(res.status).toBe(401);
 	});

@@ -23,11 +23,10 @@ export const EXPIRING_WINDOW_DAYS = 3;
 
 function schoolAuthorized(c: {
 	req: { header: (k: string) => string | undefined };
-}):
-	| { ok: true }
-	| { ok: false; status: 401 | 503; error: string } {
+}): { ok: true } | { ok: false; status: 401 | 503; error: string } {
 	const expected = process.env.SCHOOL_KEY;
-	if (!expected) return { ok: false, status: 503, error: "SCHOOL_KEY não configurada" };
+	if (!expected)
+		return { ok: false, status: 503, error: "SCHOOL_KEY não configurada" };
 	if (c.req.header("x-school-key") !== expected) {
 		return { ok: false, status: 401, error: "não autorizado" };
 	}

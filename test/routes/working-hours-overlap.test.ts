@@ -49,7 +49,9 @@ async function createdUser(headers: Record<string, string>) {
 	const res = await app.request("/v1/auth/sync", {
 		method: "POST",
 		headers: { "content-type": "application/json", ...headers },
-		body: JSON.stringify({ name: `Pro Teste ${headers.Authorization.slice(7)}` }),
+		body: JSON.stringify({
+			name: `Pro Teste ${headers.Authorization.slice(7)}`,
+		}),
 	});
 	expect(res.status).toBe(201);
 }
@@ -139,9 +141,7 @@ describe("Dia fechado (B4)", () => {
 	it("PUT com array vazio remove todos os horários (tudo fechado)", async () => {
 		const h = authed(uid());
 		await createdUser(h);
-		await putHours(h, [
-			{ weekday: 1, start_minute: 540, end_minute: 720 },
-		]);
+		await putHours(h, [{ weekday: 1, start_minute: 540, end_minute: 720 }]);
 		const res = await putHours(h, []);
 		expect(res.status).toBe(200);
 		const rows = (await res.json()) as unknown[];
@@ -152,9 +152,7 @@ describe("Dia fechado (B4)", () => {
 		const h = authed(uid());
 		await createdUser(h);
 		// só terça-feira aberta 09:00-12:00
-		await putHours(h, [
-			{ weekday: 2, start_minute: 540, end_minute: 720 },
-		]);
+		await putHours(h, [{ weekday: 2, start_minute: 540, end_minute: 720 }]);
 		// slug direto do banco (mesma fonte da rota pública)
 		const meUid = h.Authorization.slice(7);
 		const bizRows = await sql<{ slug: string }[]>`
@@ -169,9 +167,7 @@ describe("Dia fechado (B4)", () => {
 			working_hours: { weekday: number }[];
 		};
 		// só tem horário na terça (2)
-		expect(
-			infoBody.working_hours.every((w) => w.weekday === 2),
-		).toBe(true);
+		expect(infoBody.working_hours.every((w) => w.weekday === 2)).toBe(true);
 	});
 });
 

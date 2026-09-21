@@ -106,7 +106,36 @@ export function billingRoutes(databaseUrl: string) {
 				})
 				.where(eq(businesses.id, biz.id));
 
-			return c.json({ invoiceUrl: subscription.invoiceUrl ?? null }, 201);
+			// A subscription não traz invoiceUrl — a URL de pagamento fica na
+			// COBRANça gerada por ela (provado no sandbox, Fase D). Buscamos a
+			// payment mais recente do customer; se falhar, devolve null e o app
+			// orientará a conferir o e-mail.
+			// O Asaas gera a cobrança da subscription ASYNC — a URL de pagamento
+			// nem sempre existe no primeiro GET (race provada no sandbox). Retry
+			// curto; se ainda não houver, null e o app orienta pelo e-mail.
+			let invoiceUrl: string | null = null;
+			for (let attempt = 0; attempt < 5 && invoiceUrl === null; attempt++) {
+				try {
+					// delay entre tentativas: o Asaas gera a cobrança async
+					// (o delay do attempt 0 é pulado — primeira consulta imediata)
+					await new Promise((r) => setTimeout(r, attempt * 1500));
+					const paysResp = await fetch(
+						`${config.baseUrl}/v3/payments?customer=${customer.id}&limit=1`,
+						{ headers: { access_token: config.apiKey } },
+					);
+					if (paysResp.ok) {
+						const pays = (await paysResp.json()) as {
+							data?: { invoiceUrl?: string; bankSlipUrl?: string }[];
+						};
+						const first = pays.data?.[0];
+						invoiceUrl = first?.invoiceUrl ?? first?.bankSlipUrl ?? null;
+					}
+				} catch {
+					/* best-effort */
+				}
+			}
+
+			return c.json({ invoiceUrl }, 201);
 		} catch (e) {
 			console.error("[billing] falha no checkout do Asaas:", e);
 			return c.json({ error: "Cobrança indisponível no momento" }, 503);
