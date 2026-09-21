@@ -296,6 +296,24 @@ export function appointmentRoutes(databaseUrl: string) {
 			) {
 				return c.json({ error: "status inválido" }, 400);
 			}
+			// Decisão de produto 21/09: agendamento cujo horário já passou não
+			// muda de estado (cancelar/concluir/faltar exigem antecedência).
+			// Mudar startsAt na MESMA request reabre o horário — nesse caso a
+			// mudança de status é legítima (remarcação + confirmação).
+			const rechedules =
+				body.startsAt !== undefined || body.endsAt !== undefined;
+			const newStart = rechedules
+				? (parseDate(body.startsAt) ?? current.startsAt)
+				: current.startsAt;
+			if (!rechedules && newStart.getTime() <= Date.now()) {
+				return c.json(
+					{
+						error:
+							"Este horário já passou — não é possível alterar o agendamento",
+					},
+					400,
+				);
+			}
 			patch.status = body.status;
 			if (body.status === "canceled") {
 				patch.canceledAt = new Date();
