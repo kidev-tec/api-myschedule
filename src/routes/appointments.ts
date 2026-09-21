@@ -197,9 +197,10 @@ export function appointmentRoutes(databaseUrl: string) {
 				.returning();
 			return c.json({ appointment: created }, 201);
 		} catch (err) {
-			// Defesa 2: exclusion constraint (corrida de concorrência)
+			// Defesa 2: exclusion constraint (corrida de concorrência).
+			// 40P01 = deadlock de duas transações no mesmo slot → também 409.
 			const code = pgErrorCode(err);
-			if (code === "23P01") {
+			if (code === "23P01" || code === "40P01") {
 				return c.json(
 					{
 						error: "conflito de horário",
@@ -297,6 +298,7 @@ export function appointmentRoutes(databaseUrl: string) {
 			}
 			patch.status = body.status;
 			if (body.status === "canceled") {
+				patch.canceledAt = new Date();
 				patch.canceledReason =
 					typeof body.canceledReason === "string" ? body.canceledReason : null;
 			}
@@ -304,7 +306,18 @@ export function appointmentRoutes(databaseUrl: string) {
 
 		if (body.startsAt !== undefined || body.endsAt !== undefined) {
 			const start = parseDate(body.startsAt) ?? current.startsAt;
-			const end = parseDate(body.endsAt) ?? current.endsAt;
+			// B5 (UX): mudou só o início → preserva a DURAÇÃO original
+			// (leigo não calcula fim; "mover" o agendamento inteiro).
+			let end: Date;
+			if (body.endsAt !== undefined) {
+				/* v8 ignore next -- parseDate inválida cai em 400 antes (startsAt>=end) */
+				end = parseDate(body.endsAt) ?? current.endsAt;
+			} else {
+				// B5 (UX): mudou só o início → preserva a DURAÇÃO original
+				// (leigo não calcula fim; "mover" o agendamento inteiro).
+				const durMs = current.endsAt.getTime() - current.startsAt.getTime();
+				end = new Date(start.getTime() + durMs);
+			}
 			if (start >= end)
 				return c.json({ error: "startsAt deve ser antes de endsAt" }, 400);
 
@@ -337,6 +350,14 @@ export function appointmentRoutes(databaseUrl: string) {
 			patch.endsAt = end;
 		}
 
+		// BARRA B5: remarcar mantém HISTÓRICO — a linha original é cancelada
+		// (canceled_at + reason "remarcado") e uma NOVA linha ativa é criada
+		// com as datas novas. Status puro (done/noshow/confirm/cancel sem
+		// mudança de data) continua sendo update in-place.
+		const isReschedule =
+			(patch.startsAt !== undefined || patch.endsAt !== undefined) &&
+			patch.status === undefined;
+
 		if (Object.keys(patch).length === 0) {
 			return c.json(
 				{ error: "nada para atualizar (status/startsAt/endsAt)" },
@@ -345,6 +366,50 @@ export function appointmentRoutes(databaseUrl: string) {
 		}
 
 		try {
+			if (isReschedule) {
+				const nova = await db.transaction(async (tx) => {
+					// 1. cancela a linha original (histórico preservado)
+					const [antiga] = await tx
+						.update(appointments)
+						.set({
+							status: "canceled",
+							canceledAt: new Date(),
+							canceledReason: "remarcado",
+						})
+						.where(eq(appointments.id, id))
+						.returning();
+					/* v8 ignore next 2 -- UPDATE..RETURNING na linha já validada acima */
+					if (!antiga) throw new Error("agendamento desapareceu");
+					// 2. cria a nova linha ativa com as datas novas.
+					// Herda gcalEventId pra o espelho ATUALIZAR o mesmo evento
+					// do Calendar em vez de criar um novo (RF-08).
+					const [criada] = await tx
+						.insert(appointments)
+						.values({
+							businessId: antiga.businessId,
+							clientId: antiga.clientId,
+							serviceId: antiga.serviceId,
+							userId: antiga.userId,
+							// isReschedule: patch.startsAt/endsAt já contêm as datas
+							// resolvidas (nova ou herdada do bloco de datas acima).
+							startsAt: patch.startsAt as Date,
+							endsAt: patch.endsAt as Date,
+							status: "confirmed",
+							source: antiga.source,
+							gcalEventId: antiga.gcalEventId,
+							createdByUserId: user.id,
+						})
+						.returning();
+					/* v8 ignore next -- INSERT..RETURNING nunca é vazio no Postgres */
+					if (!criada) throw new Error("falha ao criar nova linha");
+					return criada;
+				});
+				mirrorToCalendar(databaseUrl, nova.id).catch((e) =>
+					console.error("[gcal] espelho falhou:", e),
+				);
+				return c.json({ appointment: nova, rescheduled: true });
+			}
+
 			const [updated] = await db
 				.update(appointments)
 				.set(patch)
@@ -363,7 +428,10 @@ export function appointmentRoutes(databaseUrl: string) {
 
 			return c.json({ appointment: updated });
 		} catch (err) {
-			if (pgErrorCode(err) === "23P01") {
+			// 23P01 = exclusion constraint; 40P01 = deadlock de duas transações
+			// concorrendo pro mesmo slot (ambas → 409 pro cliente tentar de novo)
+			const code = pgErrorCode(err);
+			if (code === "23P01" || code === "40P01") {
 				return c.json(
 					{ error: "conflito de horário", hint: "Horário ocupado." },
 					409,

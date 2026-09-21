@@ -2,18 +2,33 @@
  * Rotas de serviços + perfil do negócio (onboarding passo 1 e 2).
  *
  * Contrato do app:
- * - GET    /services → [{ id, name, duration_min, price_cents, archived_at }]
+ * - GET    /services?q=busca → [{ id, name, duration_min, price_cents, archived_at }]
+ *          (só ativos; ?q= filtra por nome, case-insensitive)
  * - POST   /services { name, duration_min, price_cents } → cria
- * - GET    /services/:id → um serviço
- * - DELETE /services/:id → soft-delete (archived_at)
+ *          (duration_min: 15..480, múltiplo de 15)
+ * - GET    /services/:id → um serviço (ativo)
+ * - PATCH  /services/:id { name?, duration_min?, price_cents? } → edita
+ * - DELETE /services/:id → ARCHIVE (soft: archived_at). Serviço arquivado
+ *          some de novos agendamentos mas permanece no histórico de passados.
  * - PATCH  /me { business_name } → renomeia o business do usuário
  */
 
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, ilike, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { type Db, getDb } from "../db/connection.js";
 import { businesses, services, users } from "../db/schema.js";
 import type { AppEnv } from "../types.js";
+
+// BARRA B3: duração de serviço 15..480 min, múltiplo de 15.
+function durationValida(v: unknown): v is number {
+	return (
+		typeof v === "number" &&
+		Number.isInteger(v) &&
+		v >= 15 &&
+		v <= 480 &&
+		v % 15 === 0
+	);
+}
 
 function serialize(r: typeof services.$inferSelect) {
 	return {
@@ -36,6 +51,7 @@ export function servicesRoutes(databaseUrl: string) {
 			await db.select().from(users).where(eq(users.firebaseUid, uid)).limit(1)
 		)[0];
 		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		const busca = c.req.query("q")?.trim();
 		const rows = await db
 			.select()
 			.from(services)
@@ -43,6 +59,7 @@ export function servicesRoutes(databaseUrl: string) {
 				and(
 					eq(services.businessId, me.businessId),
 					isNull(services.archivedAt),
+					...(busca ? [ilike(services.name, `%${busca}%`)] : []),
 				),
 			);
 		return c.json(rows.map(serialize));
@@ -67,16 +84,14 @@ export function servicesRoutes(databaseUrl: string) {
 		const priceCents = body?.price_cents;
 		if (
 			name.length < 1 ||
-			typeof durationMin !== "number" ||
-			durationMin < 5 ||
-			durationMin > 600 ||
+			!durationValida(durationMin) ||
 			typeof priceCents !== "number" ||
 			priceCents < 0
 		) {
 			return c.json(
 				{
 					error:
-						"campos obrigatórios: name (str), duration_min (5..600), price_cents (>=0)",
+						"campos obrigatórios: name (str), duration_min (15..480, múltiplo de 15), price_cents (>=0)",
 				},
 				400,
 			);
@@ -157,12 +172,11 @@ export function servicesRoutes(databaseUrl: string) {
 			updates.name = body.name.trim();
 		}
 		if (body?.duration_min !== undefined) {
-			if (
-				typeof body.duration_min !== "number" ||
-				body.duration_min < 5 ||
-				body.duration_min > 600
-			)
-				return c.json({ error: "duration_min deve ser 5..600" }, 400);
+			if (!durationValida(body.duration_min))
+				return c.json(
+					{ error: "duration_min deve ser 15..480, múltiplo de 15" },
+					400,
+				);
 			updates.durationMin = body.duration_min;
 		}
 		if (body?.price_cents !== undefined) {

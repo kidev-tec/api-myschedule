@@ -159,7 +159,12 @@ describe("POST/GET /v1/appointments (Postgres real, constraint EXCLUDE ativa)", 
 		};
 		expect(appointment.status).toBe("confirmed");
 
-		const list = await app.request("/v1/appointments", { headers: h });
+		// janela explícita: o default do GET é "hoje UTC" e falha quando
+		// now+1h cruza a meia-noite (teste data-dependent, pitfall do repo)
+		const list = await app.request(
+			`/v1/appointments?from=${new Date(Date.now() - 3600_000).toISOString()}&to=${new Date(Date.now() + 3 * 3600_000).toISOString()}`,
+			{ headers: h },
+		);
 		const body = (await list.json()) as { appointments: { id: string }[] };
 		expect(body.appointments.some((a) => a.id === appointment.id)).toBe(true);
 	});

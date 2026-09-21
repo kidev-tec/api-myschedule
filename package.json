@@ -1,6 +1,6 @@
 {
   "name": "minha-agenda-api",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "API do Minha Agenda — agenda profissional para egressos da Oficina da Beleza",
   "type": "module",
   "scripts": {

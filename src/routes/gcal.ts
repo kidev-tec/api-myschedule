@@ -17,6 +17,7 @@ import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { getDb } from "../db/connection.js";
 import { businesses, users } from "../db/schema.js";
+import { encryptToken } from "../domain/token-crypto.js";
 import type { AppEnv } from "../types.js";
 
 const GCAL_AUTH = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -90,7 +91,8 @@ export function gcalRoutes(databaseUrl: string) {
 		await db
 			.update(businesses)
 			.set({
-				gcalRefreshToken: tokens.refresh_token,
+				// B9: refresh_token cifrado em repouso (AES-256-GCM)
+				gcalRefreshToken: encryptToken(tokens.refresh_token),
 				gcalConnectedAt: new Date(),
 			})
 			.where(eq(businesses.id, me.businessId));

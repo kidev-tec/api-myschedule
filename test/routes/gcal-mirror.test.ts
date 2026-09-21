@@ -294,8 +294,17 @@ describe("RF-08: espelho two-way no Calendar", () => {
 		});
 		await new Promise((r) => setTimeout(r, 50));
 
-		const row = await eventRow(id);
-		expect(row?.gcal_event_id).toBe("EVT-gone-2");
+		// B5: remarcação cria NOVA linha (histórico); o espelho recriou o
+		// evento na linha ATIVA (nova). A antiga mantém o eventId velho.
+		const activeRows = (await sql`
+			select id, gcal_event_id, status, starts_at, ends_at
+			from appointments where business_id = (select business_id from appointments where id = ${id})`) as unknown as {
+			id: string;
+			gcal_event_id: string | null;
+			status: string;
+		}[];
+		const active = activeRows.find((r) => r.status !== "canceled");
+		expect(active?.gcal_event_id).toBe("EVT-gone-2");
 	});
 
 	it("GCal desconectado → PATCH funciona sem chamar o Google", async () => {

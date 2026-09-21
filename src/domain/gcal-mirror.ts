@@ -17,6 +17,7 @@
 import { eq } from "drizzle-orm";
 import { type Db, getDb } from "../db/connection.js";
 import { appointments, businesses, clients, services } from "../db/schema.js";
+import { decryptToken } from "./token-crypto.js";
 
 const GCAL_TOKEN = "https://oauth2.googleapis.com/token";
 const GCAL_EVENTS =
@@ -125,7 +126,7 @@ export async function mirrorToCalendar(
 	if (status !== "confirmed") {
 		// cancelado/noshow/pending: só remove se já existia evento
 		if (appt.gcalEventId && appt.refreshToken) {
-			const token = await getAccessToken(appt.refreshToken);
+			const token = await getAccessToken(decryptToken(appt.refreshToken));
 			const del = await fetch(
 				`${GCAL_EVENTS}/${encodeURIComponent(appt.gcalEventId)}`,
 				{ method: "DELETE", headers: { Authorization: `Bearer ${token}` } },
@@ -144,7 +145,7 @@ export async function mirrorToCalendar(
 	// status === confirmed
 	if (!appt.refreshToken) return; // GCal não conectado: nada a fazer
 
-	const token = await getAccessToken(appt.refreshToken);
+	const token = await getAccessToken(decryptToken(appt.refreshToken));
 	const body = eventBody(appt);
 
 	if (appt.gcalEventId) {
