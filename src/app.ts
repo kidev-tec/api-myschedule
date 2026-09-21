@@ -10,6 +10,7 @@ import { requireWritableFactory } from "./middleware/paywall.js";
 import { appointmentRoutes } from "./routes/appointments.js";
 import { authSyncRoutes } from "./routes/auth-sync.js";
 import { clientsRoutes } from "./routes/clients.js";
+import { asaasWebhookRoutes } from "./routes/asaas-webhook.js";
 import { billingRoutes } from "./routes/billing.js";
 import { docsRoutes } from "./routes/docs.js";
 import { gcalRoutes } from "./routes/gcal.js";
@@ -93,6 +94,10 @@ export function createApp(opts: {
 	// Billing Asaas (RF-14) — checkout authed + writable (paywall naturalmente
 	// deixa trial ativo passar; a rota é de ESCRITA no banco por natureza)
 	app.route("/v1", billingRoutes(opts.databaseUrl));
+
+	// Webhook do Asaas — público (Asaas não tem Firebase), raiz fora do /v1.
+	// Autenticado pelo header asaas-access-token (não pelo middleware Firebase).
+	app.route("/", asaasWebhookRoutes(opts.databaseUrl));
 
 	// RF-07 — link público (sem Firebase auth; rotas /p/*)
 	app.route("/", publicBookingRoutes(opts.databaseUrl));
