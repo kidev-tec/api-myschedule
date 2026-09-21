@@ -6,7 +6,15 @@
  */
 import { eq } from "drizzle-orm";
 import postgres from "postgres";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
 
 const verifyMock = vi.hoisted(() => vi.fn());
 vi.mock("firebase-admin/auth", () => ({
@@ -84,7 +92,8 @@ describe("POST /v1/billing/checkout", () => {
 		const u = await createUser("Pro Teste Billing 503");
 		const res = await app.request("/v1/billing/checkout", {
 			method: "POST",
-			headers: authed(u),
+			headers: { "content-type": "application/json", ...authed(u) },
+			body: JSON.stringify({ cpf_cnpj: "20447670824" }),
 		});
 		expect(res.status).toBe(503);
 		expect(fetchMock).not.toHaveBeenCalled();
@@ -96,9 +105,36 @@ describe("POST /v1/billing/checkout", () => {
 		const u = await createUser("Pro Teste Billing cfg");
 		const res = await app.request("/v1/billing/checkout", {
 			method: "POST",
-			headers: authed(u),
+			headers: { "content-type": "application/json", ...authed(u) },
+			body: JSON.stringify({ cpf_cnpj: "20447670824" }),
 		});
 		expect(res.status).toBe(503);
+	});
+
+	it("400 sem cpf_cnpj no body", async () => {
+		vi.stubEnv("ASAAS_API_KEY", "k");
+		vi.stubEnv("ASAAS_PLAN_VALUE", "2990");
+		const u = await createUser("Pro Teste Billing NoCpf");
+		const res = await app.request("/v1/billing/checkout", {
+			method: "POST",
+			headers: { "content-type": "application/json", ...authed(u) },
+			body: JSON.stringify({}),
+		});
+		expect(res.status).toBe(400);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("body JSON quebrado → 400 pelo catch do json()", async () => {
+		vi.stubEnv("ASAAS_API_KEY", "k");
+		vi.stubEnv("ASAAS_PLAN_VALUE", "2990");
+		const u = await createUser("Pro Teste Billing BadJson");
+		const res = await app.request("/v1/billing/checkout", {
+			method: "POST",
+			headers: { "content-type": "application/json", ...authed(u) },
+			body: "não-sou-json{{{",
+		});
+		expect(res.status).toBe(400);
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
 	it("feliz: cria customer+subscription, persiste ids e devolve invoiceUrl", async () => {
@@ -120,7 +156,8 @@ describe("POST /v1/billing/checkout", () => {
 
 		const res = await app.request("/v1/billing/checkout", {
 			method: "POST",
-			headers: authed(u),
+			headers: { "content-type": "application/json", ...authed(u) },
+			body: JSON.stringify({ cpf_cnpj: "204.476.708-24" }),
 		});
 		expect(res.status).toBe(201);
 		expect(await res.json()).toEqual({ invoiceUrl: "https://pay/x" });
@@ -148,6 +185,11 @@ describe("POST /v1/billing/checkout", () => {
 		const [, subInit] = subCall;
 		const subBody = JSON.parse(subInit?.body as string);
 		expect(subBody).toMatchObject({ value: 29.9, cycle: "MONTHLY" });
+
+		// customer criado com o cpfCnpj normalizado
+		const [custUrl2, custInit] = fetchMock.mock.calls[0];
+		expect(String(custUrl2)).toContain("/v3/customers");
+		expect(JSON.parse(custInit?.body as string).cpfCnpj).toBe("20447670824");
 	});
 
 	it("reusa o asaas_customer_id existente (1 chamada de rede)", async () => {
@@ -160,20 +202,25 @@ describe("POST /v1/billing/checkout", () => {
 			.set({ asaasCustomerId: "cus_existing" })
 			.where(eq(businesses.id, await businessIdOf(u)));
 
-		fetchMock.mockResolvedValueOnce(
-			new Response(JSON.stringify({ id: "sub_new2" }), { status: 200 }),
-		);
+		fetchMock
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ id: "cus_existing" }), { status: 200 }),
+			)
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ id: "sub_new2" }), { status: 200 }),
+			);
 
 		const res = await app.request("/v1/billing/checkout", {
 			method: "POST",
-			headers: authed(u),
+			headers: { "content-type": "application/json", ...authed(u) },
+			body: JSON.stringify({ cpf_cnpj: "20447670824" }),
 		});
 		expect(res.status).toBe(201);
-		expect(fetchMock).toHaveBeenCalledTimes(1); // só subscription
+		expect(fetchMock).toHaveBeenCalledTimes(2); // update CPF + subscription
 		const reuseCall = fetchMock.mock.calls[0];
 		if (!reuseCall) throw new Error("fetch não chamado");
 		const [custUrl] = reuseCall;
-		expect(String(custUrl)).toContain("/v3/subscriptions");
+		expect(String(custUrl)).toContain("/v3/customers/cus_existing");
 	});
 
 	it("409 quando o business já tem assinatura", async () => {
@@ -188,7 +235,8 @@ describe("POST /v1/billing/checkout", () => {
 
 		const res = await app.request("/v1/billing/checkout", {
 			method: "POST",
-			headers: authed(u),
+			headers: { "content-type": "application/json", ...authed(u) },
+			body: JSON.stringify({ cpf_cnpj: "20447670824" }),
 		});
 		expect(res.status).toBe(409);
 		expect(fetchMock).not.toHaveBeenCalled();
@@ -202,7 +250,8 @@ describe("POST /v1/billing/checkout", () => {
 
 		const res = await app.request("/v1/billing/checkout", {
 			method: "POST",
-			headers: authed(u),
+			headers: { "content-type": "application/json", ...authed(u) },
+			body: JSON.stringify({ cpf_cnpj: "20447670824" }),
 		});
 		expect(res.status).toBe(503);
 		expect(await res.json()).toEqual({

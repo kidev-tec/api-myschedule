@@ -368,6 +368,52 @@ export const openApiSpec = {
 				},
 			},
 		},
+		"/v1/billing/checkout": {
+			post: {
+				tags: ["Billing"],
+				summary: "Cria assinatura Asaas e retorna URL de pagamento",
+				requestBody: {
+					required: true,
+					content: {
+						"application/json": {
+							schema: {
+								type: "object",
+								required: ["cpf_cnpj"],
+								properties: {
+									cpf_cnpj: {
+										type: "string",
+										description: "CPF (11) ou CNPJ (14) do pagador, com ou sem máscara",
+									},
+								},
+							},
+						},
+					},
+				},
+				responses: {
+					"201": { description: "invoiceUrl do Asaas" },
+					"400": { description: "CPF/CNPJ ausente ou inválido" },
+					"402": { description: "Paywall" },
+					"409": { description: "Já existe assinatura" },
+					"503": { description: "Asaas não configurado ou fora do ar" },
+				},
+			},
+		},
+		"/webhooks/asaas": {
+			post: {
+				tags: ["Billing"],
+				summary: "Webhook do Asaas (eventos de pagamento/assinatura)",
+				description: "Público; autenticado pelo header asaas-access-token. É a única fonte de verdade do subscription_status.",
+				parameters: [
+					{
+						name: "asaas-access-token",
+						in: "header",
+						required: true,
+						schema: { type: "string" },
+					},
+				],
+				responses: { "200": { description: "OK (processado ou ignorado)" }, "401": { description: "Token inválido" } },
+			},
+		},
 		"/v1/appointments": {
 			get: {
 				tags: ["Appointments"],

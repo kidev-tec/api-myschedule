@@ -7,6 +7,7 @@ import {
 	createCustomer,
 	createSubscription,
 	loadAsaasConfig,
+	updateCustomerCpf,
 } from "../../src/services/asaas.js";
 
 const fetchMock = vi.fn();
@@ -68,6 +69,7 @@ describe("createCustomer", () => {
 			name: "Studio X",
 			email: "x@y.com",
 			externalReference: "biz-uuid",
+			cpfCnpj: "20447670824",
 		});
 
 		expect(customer).toEqual({ id: "cus_1" });
@@ -81,6 +83,7 @@ describe("createCustomer", () => {
 			name: "Studio X",
 			email: "x@y.com",
 			externalReference: "biz-uuid",
+			cpfCnpj: "20447670824",
 		});
 	});
 
@@ -95,6 +98,7 @@ describe("createCustomer", () => {
 				name: "x",
 				email: "x@y.com",
 				externalReference: "r",
+				cpfCnpj: "20447670824",
 			}),
 		).rejects.toThrow("Asaas 400");
 	});
@@ -114,6 +118,22 @@ describe("createCustomer", () => {
 				nextDueDate: "2026-09-21",
 			}),
 		).rejects.toThrow("Asaas 500");
+	});
+});
+
+describe("updateCustomerCpf", () => {
+	it("POST /v3/customers/{id} com o novo cpfCnpj", async () => {
+		fetchMock.mockResolvedValue(
+			new Response(JSON.stringify({ id: "cus_1" }), { status: 200 }),
+		);
+		const cfg = loadAsaasConfig({ ASAAS_API_KEY: "k" });
+		if (cfg === null) throw new Error("config deveria estar ativa");
+		await updateCustomerCpf(cfg, "cus_1", "20447670824");
+		const [url, init] = fetchMock.mock.calls[0];
+		expect(String(url)).toBe(
+			"https://api-sandbox.asaas.com/v3/customers/cus_1",
+		);
+		expect(JSON.parse(init.body as string)).toEqual({ cpfCnpj: "20447670824" });
 	});
 });
 

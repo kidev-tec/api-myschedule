@@ -38,9 +38,10 @@ async function asaasFetch<T>(
 	config: AsaasConfig,
 	path: string,
 	body: unknown,
+	method: "POST" = "POST",
 ): Promise<T> {
 	const resp = await fetch(`${config.baseUrl}${path}`, {
-		method: "POST",
+		method,
 		headers: {
 			"Content-Type": "application/json",
 			access_token: config.apiKey,
@@ -57,13 +58,33 @@ async function asaasFetch<T>(
 /** Cria (ou recupera por cpfCnpj/externalReference) o customer no Asaas. */
 export function createCustomer(
 	config: AsaasConfig,
-	input: { name: string; email: string; externalReference: string },
+	input: {
+		name: string;
+		email: string;
+		externalReference: string;
+		cpfCnpj: string;
+	},
 ): Promise<AsaasCustomer> {
 	return asaasFetch<AsaasCustomer>(config, "/v3/customers", {
 		name: input.name,
 		email: input.email,
 		externalReference: input.externalReference,
+		cpfCnpj: input.cpfCnpj,
 	});
+}
+
+/** Atualiza o CPF/CNPJ de um customer existente. */
+export function updateCustomerCpf(
+	config: AsaasConfig,
+	customerId: string,
+	cpfCnpj: string,
+): Promise<AsaasCustomer> {
+	return asaasFetch<AsaasCustomer>(
+		config,
+		`/v3/customers/${customerId}`,
+		{ cpfCnpj },
+		"POST",
+	);
 }
 
 /** Assinatura mensal; o Asaas gera a primeira cobrança e a invoiceUrl. */

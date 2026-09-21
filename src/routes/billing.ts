@@ -19,6 +19,7 @@ import {
 	createCustomer,
 	createSubscription,
 	loadAsaasConfig,
+	updateCustomerCpf,
 } from "../services/asaas.js";
 import type { AppEnv } from "../types.js";
 
@@ -30,6 +31,22 @@ export function billingRoutes(databaseUrl: string) {
 		const config = loadAsaasConfig(process.env);
 		if (config === null || config.planValueCents <= 0) {
 			return c.json({ error: "Cobrança indisponível no momento" }, 503);
+		}
+
+		const body = (await c.req.json().catch(() => null)) as {
+			cpf_cnpj?: unknown;
+		} | null;
+		// Asaas sandbox exige CPF/CNPJ do pagador (descoberta Fase D 20/09:
+		// sem isso a subscription é rejeitada com invalid_object)
+		const cpfCnpj =
+			typeof body?.cpf_cnpj === "string"
+				? body.cpf_cnpj.replace(/\D/g, "")
+				: "";
+		if (cpfCnpj.length !== 11 && cpfCnpj.length !== 14) {
+			return c.json(
+				{ error: "Preciso do teu CPF (11 números) pra criar a cobrança" },
+				400,
+			);
 		}
 
 		const me = (
@@ -57,13 +74,20 @@ export function billingRoutes(databaseUrl: string) {
 		}
 
 		try {
-			const customer = biz.asaasCustomerId
-				? { id: biz.asaasCustomerId }
-				: await createCustomer(config, {
-						name: biz.name,
-						email: me.email,
-						externalReference: biz.id,
-					});
+			// Sempre atualiza o CPF: o Asaas rejeita subscription sem cpfCnpj
+			// e o prestador pode ter errado no primeiro attempt.
+			const customer = await (async () => {
+				if (biz.asaasCustomerId) {
+					await updateCustomerCpf(config, biz.asaasCustomerId, cpfCnpj);
+					return { id: biz.asaasCustomerId };
+				}
+				return createCustomer(config, {
+					name: biz.name,
+					email: me.email,
+					externalReference: biz.id,
+					cpfCnpj,
+				});
+			})();
 
 			// próximo vencimento = amanhã (Asaas exige data futura, formato YYYY-MM-DD)
 			const nextDue = new Date(Date.now() + 24 * 60 * 60 * 1000)
