@@ -406,8 +406,17 @@ export function publicBookingRoutes(databaseUrl: string) {
 				.limit(1);
 			hasLogo = Boolean(logo?.mime);
 		}
+		// og:image/og:url exigem URL ABSOLUTA (crawler do WhatsApp não resolve
+		// caminho relativo — pitfall B8). Origem vem do próprio request.
+		const origin = new URL(c.req.url).origin;
 		return c.html(
-			publicPageHtml(slug, loaded?.biz.businessType, bizName, hasLogo),
+			publicPageHtml(
+				slug,
+				origin,
+				loaded?.biz.businessType,
+				bizName,
+				hasLogo,
+			),
 		);
 	});
 
@@ -519,6 +528,7 @@ const BRAND_PALETTE = { p: "#1E96E8", selBg: "#E8F3FC" }; // marca AGENVA
 
 function publicPageHtml(
 	slug: string,
+	origin: string,
 	bizType?: string | null,
 	bizName?: string | null,
 	hasLogo?: boolean,
@@ -532,12 +542,14 @@ function publicPageHtml(
 	const description = esc(
 		bizName ? `Marque seu horário em ${bizName}` : "Marque seu horário online",
 	);
-	const logoUrl = hasLogo ? `/v1/businesses/${s}/logo` : "";
+	const base = origin;
+	const logoUrl = hasLogo ? `${base}/v1/businesses/${s}/logo` : "";
+	const pageUrl = `${base}/p/${s}`;
 	const ogTags = `
 <meta property="og:type" content="website">
 <meta property="og:title" content="${title}">
 <meta property="og:description" content="${description}">
-<meta property="og:url" content="/p/${s}">
+<meta property="og:url" content="${pageUrl}">
 ${hasLogo ? `<meta property="og:image" content="${logoUrl}">\n<link rel="icon" href="${logoUrl}">` : ""}`;
 	return `<!doctype html>
 <html lang="pt-BR">

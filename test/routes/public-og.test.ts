@@ -85,9 +85,11 @@ describe("GET /p/:slug — OG tags + logo (B8)", () => {
 		expect(html).toContain(
 			`og:description" content="Marque seu horário em ${name}"`,
 		);
-		expect(html).toContain(`og:image" content="/v1/businesses/${slug}/logo"`);
 		expect(html).toContain(
-			`<link rel="icon" href="/v1/businesses/${slug}/logo">`,
+			`og:image" content="http://localhost/v1/businesses/${slug}/logo"`,
+		);
+		expect(html).toContain(
+			`<link rel="icon" href="http://localhost/v1/businesses/${slug}/logo">`,
 		);
 	});
 
