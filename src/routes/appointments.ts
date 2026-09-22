@@ -7,7 +7,7 @@
  *    → erro SQL 23P01 mapeado para 409
  */
 
-import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, lt, lte, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { type Db, getDb } from "../db/connection.js";
 import {
@@ -15,6 +15,7 @@ import {
 	businesses,
 	clients,
 	services,
+	timeOffs,
 	users,
 } from "../db/schema.js";
 import { overlaps } from "../domain/booking.js";
@@ -166,6 +167,30 @@ export function appointmentRoutes(databaseUrl: string) {
 					409,
 				);
 			}
+		}
+		// F3: bloqueios de agenda (time-offs) também conflitam
+		const timeOffRows = await db
+			.select({ startsAt: timeOffs.startsAt, endsAt: timeOffs.endsAt })
+			.from(timeOffs)
+			.where(
+				and(
+					eq(timeOffs.userId, professionalId),
+					lt(timeOffs.startsAt, end),
+					gt(timeOffs.endsAt, start),
+				),
+			);
+		if (timeOffRows.length > 0) {
+			return c.json(
+				{
+					error: "conflito de horário",
+					hint: "Este horário está bloqueado na agenda do profissional.",
+					conflictWith: {
+						startsAt: timeOffRows[0]!.startsAt,
+						endsAt: timeOffRows[0]!.endsAt,
+					},
+				},
+				409,
+			);
 		}
 
 		// RF-A: source opcional no POST. "block" = bloqueio de horário.

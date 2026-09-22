@@ -13,7 +13,7 @@
  * responde 402 no book (leitura/info continua livre).
  */
 
-import { and, eq, gte, isNull, lte, sql } from "drizzle-orm";
+import { and, eq, gt, gte, isNull, lt, lte, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { type Db, getDb } from "../db/connection.js";
 import {
@@ -21,6 +21,7 @@ import {
 	businesses,
 	clients,
 	services,
+	timeOffs as timeOffsTable,
 	users,
 	workingHours,
 } from "../db/schema.js";
@@ -308,6 +309,21 @@ export function publicBookingRoutes(databaseUrl: string) {
 		}
 		const dayEnd = new Date(dayStart.getTime() + 86_400_000);
 
+		// F3: bloqueios de agenda contam como ocupados pro cliente
+		const timeOffs = await db
+			.select({
+				startsAt: timeOffsTable.startsAt,
+				endsAt: timeOffsTable.endsAt,
+			})
+			.from(timeOffsTable)
+			.where(
+				and(
+					eq(timeOffsTable.userId, loaded.pro.id),
+					lt(timeOffsTable.startsAt, dayEnd),
+					gt(timeOffsTable.endsAt, dayStart),
+				),
+			);
+
 		const rows = await db
 			.select({ startsAt: appointments.startsAt, endsAt: appointments.endsAt })
 			.from(appointments)
@@ -321,10 +337,18 @@ export function publicBookingRoutes(databaseUrl: string) {
 				),
 			);
 		return c.json({
-			busy: rows.map((r) => ({
-				start: r.startsAt.toISOString(),
-				end: r.endsAt.toISOString(),
-			})),
+			busy: [
+				...rows.map((r) => ({
+					start: r.startsAt.toISOString(),
+					end: r.endsAt.toISOString(),
+				})),
+				// bloqueios vão com flag pra o cliente ver "indisponível"
+				...timeOffs.map((t) => ({
+					start: t.startsAt.toISOString(),
+					end: t.endsAt.toISOString(),
+					blocked: true,
+				})),
+			],
 		});
 	});
 

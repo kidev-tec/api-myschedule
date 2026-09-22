@@ -22,6 +22,7 @@ import {
 import { publicBookingRoutes } from "./routes/public-booking.js";
 import { schoolRoutes } from "./routes/school.js";
 import { meRoutes, servicesRoutes } from "./routes/services.js";
+import { timeOffRoutes } from "./routes/time-offs.js";
 import { versionRoutes } from "./routes/version.js";
 import { workingHoursRoutes } from "./routes/working-hours.js";
 import type { AppEnv } from "./types.js";
@@ -82,6 +83,7 @@ export function createApp(opts: {
 	app.route("/v1", meRoutes(opts.databaseUrl));
 	app.route("/v1", servicesRoutes(opts.databaseUrl));
 	app.route("/v1", deviceRoutes(opts.databaseUrl));
+	app.route("/v1", timeOffRoutes(opts.databaseUrl));
 	app.route("/v1", workingHoursRoutes(opts.databaseUrl));
 	app.route("/v1", clientsRoutes(opts.databaseUrl));
 	app.route("/v1/appointments", appointmentRoutes(opts.databaseUrl));

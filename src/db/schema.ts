@@ -299,6 +299,34 @@ export const subscriptions = pgTable("subscriptions", {
  */
 export const businessesWithLogo = businesses;
 
+/**
+ * F3 (migration 0015): bloqueios de agenda — almoço, feriado, férias.
+ * Janela em que o profissional não aceita agendamentos mesmo dentro
+ * do expediente. Slots públicos consultam esta tabela via NOT EXISTS.
+ */
+export const timeOffs = pgTable(
+	"time_offs",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		userId: uuid("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		businessId: uuid("business_id")
+			.notNull()
+			.references(() => businesses.id, { onDelete: "cascade" }),
+		reason: varchar("reason", { length: 120 }),
+		startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+		endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+	},
+	(t) => [
+		index("time_offs_user_start_idx").on(t.userId, t.startsAt),
+		sql`CONSTRAINT time_offs_range_ck CHECK (ends_at > starts_at)`,
+	],
+);
+
 export const deviceTokens = pgTable("device_tokens", {
 	id: uuid("id").defaultRandom().primaryKey(),
 	userId: uuid("user_id")
