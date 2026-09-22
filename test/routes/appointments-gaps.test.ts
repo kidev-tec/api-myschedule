@@ -6,7 +6,15 @@
  */
 
 import postgres from "postgres";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
 
 const verifyMock = vi.hoisted(() => vi.fn());
 vi.mock("firebase-admin/auth", () => ({
@@ -40,13 +48,60 @@ beforeAll(async () => {
 	await sql`SELECT 1`;
 });
 
+// Limpa triggers/funções de teste antes de cada arquivo (evita vazamento de outros arquivos)
+beforeAll(async () => {
+	await sql`DROP TRIGGER IF EXISTS boom_trig ON appointments`;
+	await sql`DROP TRIGGER IF EXISTS race_trig ON appointments`;
+	await sql`DROP TRIGGER IF EXISTS boom2_trig ON appointments`;
+	await sql`DROP TRIGGER IF EXISTS del_client_trig ON appointments`;
+	await sql`DROP TRIGGER IF EXISTS shadow_trig ON appointments`;
+	await sql`DROP FUNCTION IF EXISTS rafole_boom()`;
+	await sql`DROP FUNCTION IF EXISTS rafole_race()`;
+	await sql`DROP FUNCTION IF EXISTS rafole_boom2()`;
+	await sql`DROP FUNCTION IF EXISTS rafole_del_client()`;
+	await sql`DROP FUNCTION IF EXISTS rafole_shadow()`;
+});
+
+// Limpa triggers/funções após CADA teste (evita vazamento entre testes deste arquivo)
+afterEach(async () => {
+	await sql`DROP TRIGGER IF EXISTS boom_trig ON appointments`;
+	await sql`DROP TRIGGER IF EXISTS race_trig ON appointments`;
+	await sql`DROP TRIGGER IF EXISTS boom2_trig ON appointments`;
+	await sql`DROP TRIGGER IF EXISTS del_client_trig ON appointments`;
+	await sql`DROP TRIGGER IF EXISTS shadow_trig ON appointments`;
+	await sql`DROP FUNCTION IF EXISTS rafole_boom()`;
+	await sql`DROP FUNCTION IF EXISTS rafole_race()`;
+	await sql`DROP FUNCTION IF EXISTS rafole_boom2()`;
+	await sql`DROP FUNCTION IF EXISTS rafole_del_client()`;
+	await sql`DROP FUNCTION IF EXISTS rafole_shadow()`;
+});
+
 afterAll(async () => {
 	// ordem das FKs: appointments → clients/services → users → businesses
 	await sql`DELETE FROM appointments WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Gap%' OR name LIKE 'Pro Guarda%' OR name = 'Profissional' AND slug LIKE 'profissional-guarda-uid-%')`;
 	await sql`DELETE FROM clients WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Gap%' OR name LIKE 'Pro Guarda%')`;
 	await sql`DELETE FROM services WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Gap%' OR name LIKE 'Pro Guarda%')`;
-	await sql`DELETE FROM users WHERE firebase_uid LIKE 'gap-uid-%' OR firebase_uid LIKE 'guarda-uid-%' OR firebase_uid LIKE 'b58-%' OR firebase_uid LIKE 'b78-%' OR firebase_uid LIKE 'colleague-%' OR firebase_uid LIKE 'dbg-%'`;
-	await sql`DELETE FROM businesses WHERE slug ~ '(pro-gap|guarda-uid|b58-|b78-|colleague-|sem-email-novo|nome-do-token)'`;
+	// corrida: outro arquivo em paralelo pode ter apagado estes users já — ignorar FK
+	try {
+		await sql`DELETE FROM working_hours WHERE user_id IN (SELECT id FROM users WHERE firebase_uid LIKE 'gap-uid-%' OR firebase_uid LIKE 'guarda-uid-%' OR firebase_uid LIKE 'b58-%' OR firebase_uid LIKE 'b78-%' OR firebase_uid LIKE 'colleague-%' OR firebase_uid LIKE 'dbg-%')`;
+		await sql`DELETE FROM users WHERE firebase_uid LIKE 'gap-uid-%' OR firebase_uid LIKE 'guarda-uid-%' OR firebase_uid LIKE 'b58-%' OR firebase_uid LIKE 'b78-%' OR firebase_uid LIKE 'colleague-%' OR firebase_uid LIKE 'dbg-%'`;
+	} catch {
+		// registro já apagado por outro worker — ok
+	}
+	// corrida: outro worker pode ter apagado users destes businesses já — ok
+	try {
+		await sql`DELETE FROM businesses WHERE slug ~ '(pro-gap|guarda-uid|b58-|b78-|colleague-|sem-email-novo|nome-do-token)'`;
+	} catch {
+		// já apagado — ok
+	}
+	// cleanup triggers/funções de teste que possam ter vazado
+	await sql`DROP TRIGGER IF EXISTS boom_trig ON appointments`;
+	await sql`DROP TRIGGER IF EXISTS race_trig ON appointments`;
+	await sql`DROP FUNCTION IF EXISTS rafole_boom()`;
+	await sql`DROP FUNCTION IF EXISTS rafole_race()`;
+	await sql`DROP FUNCTION IF EXISTS rafole_boom2()`;
+	await sql`DROP FUNCTION IF EXISTS rafole_del_client()`;
+	await sql`DROP FUNCTION IF EXISTS rafole_shadow()`;
 	await sql.end();
 });
 
@@ -61,8 +116,17 @@ async function setup(h: Record<string, string>) {
 		body: JSON.stringify({ name: "Pro Gap Setup" }),
 	});
 	const { business } = (await res.json()) as { business: { id: string } };
+	// seed working hours 24/7 for the professional (owner = business user)
+	const me =
+		await sql`SELECT id FROM users WHERE firebase_uid = ${h.Authorization!.replace("Bearer ", "")}`;
+	if (me.length > 0) {
+		const profId = me[0]!.id;
+		for (let wd = 0; wd < 7; wd++) {
+			await sql`INSERT INTO working_hours (user_id, weekday, start_time, end_time) VALUES (${profId}, ${wd}, '00:00', '23:59') ON CONFLICT DO NOTHING`;
+		}
+	}
 	const client = await one<{ id: string }>(sql`
-    INSERT INTO clients (business_id, name, phone_e164) VALUES (${business.id}, 'Gap C', '+5514999990901') RETURNING id`);
+    INSERT INTO clients (business_id, name, phone_e164) VALUES (${business.id}, 'Gap C', '+551****0901') RETURNING id`);
 	const service = await one<{ id: string }>(sql`
     INSERT INTO services (business_id, name, duration_min, price_cents) VALUES (${business.id}, 'Gap S', 30, 3000) RETURNING id`);
 	return { clientId: client.id, serviceId: service.id };
@@ -174,39 +238,33 @@ describe("defesa-2 e caminhos de erro de banco", () => {
 				appointment: { id: string };
 			};
 
-			// invalidar a checagem de domínio: cancelar o b (sai do filtro de status),
-			// remarcar a para cima do b CANCELADO? não — b cancelado não conflita.
-			// Caminho real da corrida: dois PATCHs concorrentes via API é difícil de
-			// simular; então atualizamos b DE VOLA para confirmed DIRETO no banco
-			// DEPOIS da leitura do domínio — simulando o commit concorrente.
 			await sql`UPDATE appointments SET status = 'canceled' WHERE id = ${b.appointment.id}`;
 
-			// o PATCH lê "others" (b cancelado não entra)... para forçar 23P01 precisamos
-			// do b confirmado APÓS a leitura. Usamos um trigger de teste que reativa o b
-			// quando o a é atualizado — simula a janela de corrida.
-			await sql.unsafe(`CREATE OR REPLACE FUNCTION rafole_race() RETURNS trigger AS $$
-      BEGIN
-        IF pg_trigger_depth() > 1 THEN RETURN NEW; END IF;
-        UPDATE appointments SET status = 'confirmed' WHERE id = '${b.appointment.id}';
-        RETURN NEW;
-      END;
-      $$ LANGUAGE plpgsql`);
-			await sql.unsafe(`DROP TRIGGER IF EXISTS race_trig ON appointments`);
-			await sql.unsafe(`CREATE TRIGGER race_trig BEFORE UPDATE ON appointments
-      FOR EACH ROW WHEN (NEW.id = '${a.appointment.id}') EXECUTE FUNCTION rafole_race()`);
+			try {
+				await sql.unsafe(`CREATE OR REPLACE FUNCTION rafole_race() RETURNS trigger AS $$
+		      BEGIN
+		        IF pg_trigger_depth() > 1 THEN RETURN NEW; END IF;
+		        UPDATE appointments SET status = 'confirmed' WHERE id = '${b.appointment.id}';
+		        RETURN NEW;
+		      END;
+		      $$ LANGUAGE plpgsql`);
+				await sql.unsafe(`DROP TRIGGER IF EXISTS race_trig ON appointments`);
+				await sql.unsafe(`CREATE TRIGGER race_trig BEFORE UPDATE ON appointments
+		      FOR EACH ROW WHEN (NEW.id = '${a.appointment.id}') EXECUTE FUNCTION rafole_race()`);
 
-			const res = await app.request(`/v1/appointments/${a.appointment.id}`, {
-				method: "PATCH",
-				headers: { "content-type": "application/json", ...h },
-				body: JSON.stringify({
-					startsAt: new Date(base + 3_600_000).toISOString(),
-					endsAt: new Date(base + 5_400_000).toISOString(),
-				}),
-			});
-			expect(res.status).toBe(409);
-
-			await sql`DROP TRIGGER race_trig ON appointments`;
-			await sql`DROP FUNCTION rafole_race()`;
+				const res = await app.request(`/v1/appointments/${a.appointment.id}`, {
+					method: "PATCH",
+					headers: { "content-type": "application/json", ...h },
+					body: JSON.stringify({
+						startsAt: new Date(base + 3_600_000).toISOString(),
+						endsAt: new Date(base + 5_400_000).toISOString(),
+					}),
+				});
+				expect(res.status).toBe(409);
+			} finally {
+				await sql`DROP TRIGGER IF EXISTS race_trig ON appointments`;
+				await sql`DROP FUNCTION IF EXISTS rafole_race()`;
+			}
 		});
 
 		it("PATCH: erro inesperado de banco → 500 (rethrow)", async () => {

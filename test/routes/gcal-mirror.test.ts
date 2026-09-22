@@ -55,6 +55,14 @@ async function setupProfessional(name: string, refreshToken: string | null) {
 		headers: { "content-type": "application/json", ...tokenHeader },
 		body: JSON.stringify({ name }),
 	});
+	// seed working hours 24/7 for the professional
+	const me = await sql`SELECT id FROM users WHERE firebase_uid = ${uid}`;
+	if (me.length > 0) {
+		const profId = me[0]!.id;
+		for (let wd = 0; wd < 7; wd++) {
+			await sql`INSERT INTO working_hours (user_id, weekday, start_time, end_time) VALUES (${profId}, ${wd}, '00:00', '23:59') ON CONFLICT DO NOTHING`;
+		}
+	}
 	if (refreshToken !== null) {
 		await sql`update businesses set gcal_refresh_token = ${refreshToken} where name = ${name}`;
 	}

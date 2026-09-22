@@ -74,19 +74,28 @@ describe("RF-A — bloqueio de horário (source='block')", () => {
 		clientId = (
 			await one<{ id: string }>(sql`
 			INSERT INTO clients (business_id, name, phone_e164)
-			VALUES (${businessId}, 'Block Fake', '+5511999990001') RETURNING id`)
+			VALUES (${businessId}, 'Block Fake', '+551199990001') RETURNING id`)
 		).id;
 		serviceId = (
 			await one<{ id: string }>(sql`
 			INSERT INTO services (business_id, name, duration_min, price_cents)
 			VALUES (${businessId}, 'Bloqueio', 60, 0) RETURNING id`)
 		).id;
+		// expediente 24h todos os dias (fixtures não testam expediente)
+		const meUid = h.Authorization!.slice("Bearer ".length);
+		const [user] =
+			await sql`SELECT id FROM users WHERE firebase_uid = ${meUid} LIMIT 1`;
+		for (const wd of [0, 1, 2, 3, 4, 5, 6]) {
+			await sql`
+			INSERT INTO working_hours (user_id, weekday, start_time, end_time) VALUES (${user!.id}, ${wd}, '00:00', '23:59')`;
+		}
 	});
 
 	afterAll(async () => {
 		await sql`DELETE FROM appointments WHERE business_id = ${businessId}`;
 		await sql`DELETE FROM clients WHERE business_id = ${businessId}`;
 		await sql`DELETE FROM services WHERE business_id = ${businessId}`;
+		await sql`DELETE FROM working_hours WHERE user_id IN (SELECT id FROM users WHERE email LIKE 'test-uid-block-%')`;
 		await sql`DELETE FROM users WHERE business_id = ${businessId} AND email LIKE 'test-uid-block-%'`;
 		await sql`DELETE FROM businesses WHERE id = ${businessId}`;
 		await sql.end();

@@ -39,7 +39,7 @@ const app = createApp({
 });
 
 let seq = 0;
-const uid = () => `test-uid-${Date.now()}-${seq++}`;
+const uid = () => `test-uid-lc-${Date.now()}-${seq++}`;
 
 function authed(uidValue: string) {
 	verifyMock.mockImplementation(async (token: string) => {
@@ -56,7 +56,7 @@ async function createdUser(headers: Record<string, string>) {
 		method: "POST",
 		headers: { "content-type": "application/json", ...headers },
 		body: JSON.stringify({
-			name: `Pro Teste ${auth.slice(7)}`,
+			name: `Pro Teste lc ${auth.slice(7)}`,
 		}),
 	});
 	expect(res.status).toBe(201);
@@ -93,16 +93,38 @@ function futureDate(hoursAhead: number): string {
 	return new Date(Date.now() + hoursAhead * 3600_000).toISOString();
 }
 
+async function seedWorkingHours(headers: Record<string, string>) {
+	const meUid = headers.Authorization!.slice("Bearer ".length);
+	const user = (
+		await sql<{ id: string }[]>`
+			SELECT id FROM users WHERE firebase_uid = ${meUid} LIMIT 1`
+	)[0];
+	if (!user) return;
+	// seg-sex 08:00-20:00 local — cobre os horários usados pelos fixtures
+	for (const wd of [0, 1, 2, 3, 4, 5, 6]) {
+		await sql`
+			INSERT INTO working_hours (user_id, weekday, start_time, end_time)
+			VALUES (${user.id}, ${wd}, '00:00', '23:59')`;
+	}
+}
+
 beforeAll(async () => {
 	await sql`SELECT 1`;
 });
 
 afterAll(async () => {
-	await sql`DELETE FROM appointments WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Teste%')`;
-	await sql`DELETE FROM clients WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Teste%')`;
-	await sql`DELETE FROM services WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Teste%')`;
-	await sql`DELETE FROM users WHERE email LIKE 'test-uid-%'`;
-	await sql`DELETE FROM businesses WHERE name LIKE 'Pro Teste%'`;
+	await sql`DELETE FROM working_hours WHERE user_id IN (SELECT id FROM users WHERE email LIKE 'test-uid-lc-%')`;
+	await sql`DELETE FROM appointments WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Teste lc%')`;
+	await sql`DELETE FROM clients WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Teste lc%')`;
+	await sql`DELETE FROM services WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Teste lc%')`;
+	// corrida: outro arquivo em paralelo pode ter apagado estes users já — ignorar FK
+	try {
+		await sql`DELETE FROM working_hours WHERE user_id IN (SELECT id FROM users WHERE email LIKE 'test-uid-lc-%')`;
+		await sql`DELETE FROM users WHERE email LIKE 'test-uid-lc-%'`;
+	} catch {
+		// registro já apagado por outro worker — ok
+	}
+	await sql`DELETE FROM businesses WHERE name LIKE 'Pro Teste lc%'`;
 	await sql.end();
 });
 
@@ -110,6 +132,7 @@ describe("B5 — ciclo marcar → remarcar → cancelar", () => {
 	it("remarcar preserva histórico: antiga canceled 'remarcado', nova confirmed", async () => {
 		const h = authed(uid());
 		const base = await setupBase(h);
+		await seedWorkingHours(h);
 
 		const original = await app.request("/v1/appointments", {
 			method: "POST",
@@ -162,6 +185,7 @@ describe("B5 — ciclo marcar → remarcar → cancelar", () => {
 	it("remarcar só o início (sem endsAt) preserva a duração original", async () => {
 		const h = authed(uid());
 		const base = await setupBase(h);
+		await seedWorkingHours(h);
 
 		const original = await app.request("/v1/appointments", {
 			method: "POST",
@@ -200,6 +224,7 @@ describe("B5 — ciclo marcar → remarcar → cancelar", () => {
 	it("remarcar só o fim (sem startsAt) mantém o início", async () => {
 		const h = authed(uid());
 		const base = await setupBase(h);
+		await seedWorkingHours(h);
 
 		const original = await app.request("/v1/appointments", {
 			method: "POST",
@@ -237,6 +262,7 @@ describe("B5 — ciclo marcar → remarcar → cancelar", () => {
 	it("cancelar salva canceled_at + motivo", async () => {
 		const h = authed(uid());
 		const base = await setupBase(h);
+		await seedWorkingHours(h);
 
 		const created = await app.request("/v1/appointments", {
 			method: "POST",
@@ -273,6 +299,7 @@ describe("B5 — ciclo marcar → remarcar → cancelar", () => {
 	it("dois POSTs no mesmo slot → um 201 e um 409 (constraint EXCLUDE)", async () => {
 		const h = authed(uid());
 		const base = await setupBase(h);
+		await seedWorkingHours(h);
 		const body = {
 			clientId: base.clientId,
 			serviceId: base.serviceId,
@@ -299,6 +326,7 @@ describe("B5 — ciclo marcar → remarcar → cancelar", () => {
 	it("slot ocupado some da lista; slot cancelado volta a ficar livre", async () => {
 		const h = authed(uid());
 		const base = await setupBase(h);
+		await seedWorkingHours(h);
 
 		const start = futureDate(50);
 		const created = await app.request("/v1/appointments", {

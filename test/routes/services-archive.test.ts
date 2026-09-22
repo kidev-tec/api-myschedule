@@ -35,7 +35,7 @@ const app = createApp({
 });
 
 let seq = 0;
-const uid = () => `test-uid-${Date.now()}-${seq++}`;
+const uid = () => `test-uid-svc-${Date.now()}-${seq++}`;
 
 function authed(uidValue: string) {
 	verifyMock.mockImplementation(async (token: string) => {
@@ -52,7 +52,7 @@ async function createdUser(headers: Record<string, string>) {
 		method: "POST",
 		headers: { "content-type": "application/json", ...headers },
 		body: JSON.stringify({
-			name: `Pro Teste ${auth.slice(7)}`,
+			name: `Pro Teste svc ${auth.slice(7)}`,
 		}),
 	});
 	expect(res.status).toBe(201);
@@ -86,11 +86,17 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-	await sql`DELETE FROM appointments WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Teste%')`;
-	await sql`DELETE FROM clients WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Teste%')`;
-	await sql`DELETE FROM services WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Teste%')`;
-	await sql`DELETE FROM users WHERE email LIKE 'test-uid-%'`;
-	await sql`DELETE FROM businesses WHERE name LIKE 'Pro Teste%'`;
+	await sql`DELETE FROM appointments WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Teste svc%')`;
+	await sql`DELETE FROM clients WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Teste svc%')`;
+	await sql`DELETE FROM services WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Teste svc%')`;
+	// corrida: outro arquivo em paralelo pode ter apagado estes users já — ignorar FK
+	try {
+		await sql`DELETE FROM working_hours WHERE user_id IN (SELECT id FROM users WHERE email LIKE 'test-uid-svc-%')`;
+		await sql`DELETE FROM users WHERE email LIKE 'test-uid-svc-%'`;
+	} catch {
+		// registro já apagado por outro worker — ok
+	}
+	await sql`DELETE FROM businesses WHERE name LIKE 'Pro Teste svc%'`;
 	await sql.end();
 });
 
@@ -233,7 +239,7 @@ describe("ARCHIVE (B3) — arquivado some do futuro, fica no passado", () => {
 		const auth = h.Authorization;
 		if (!auth) throw new Error("Authorization ausente");
 		const bizRows = await sql<{ id: string }[]>`
-			SELECT id FROM businesses WHERE name LIKE ${`Pro Teste ${auth.slice(7)}%`} LIMIT 1`;
+			SELECT id FROM businesses WHERE name LIKE ${`Pro Teste svc ${auth.slice(7)}%`} LIMIT 1`;
 		const businessId = bizRows[0]?.id;
 		if (!businessId) throw new Error("business não encontrado");
 		const client = await sql<{ id: string }[]>`

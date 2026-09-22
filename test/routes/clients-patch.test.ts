@@ -36,7 +36,7 @@ const app = createApp({
 });
 
 let seq = 0;
-const uid = () => `test-uid-${Date.now()}-${seq++}`;
+const uid = () => `test-uid-cli-${Date.now()}-${seq++}`;
 
 function authed(uidValue: string) {
 	verifyMock.mockImplementation(async (token: string) => {
@@ -53,7 +53,7 @@ async function createdUser(headers: Record<string, string>) {
 		method: "POST",
 		headers: { "content-type": "application/json", ...headers },
 		body: JSON.stringify({
-			name: `Pro Teste ${auth.slice(7)}`,
+			name: `Pro Teste cli ${auth.slice(7)}`,
 		}),
 	});
 	expect(res.status).toBe(201);
@@ -78,10 +78,16 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-	await sql`DELETE FROM appointments WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Teste%')`;
-	await sql`DELETE FROM clients WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Teste%')`;
-	await sql`DELETE FROM users WHERE email LIKE 'test-uid-%'`;
-	await sql`DELETE FROM businesses WHERE name LIKE 'Pro Teste%'`;
+	await sql`DELETE FROM appointments WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Teste cli%')`;
+	await sql`DELETE FROM clients WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Teste cli%')`;
+	// corrida: outro arquivo em paralelo pode ter apagado estes users já — ignorar FK
+	try {
+		await sql`DELETE FROM working_hours WHERE user_id IN (SELECT id FROM users WHERE email LIKE 'test-uid-cli-%')`;
+		await sql`DELETE FROM users WHERE email LIKE 'test-uid-cli-%'`;
+	} catch {
+		// registro já apagado por outro worker — ok
+	}
+	await sql`DELETE FROM businesses WHERE name LIKE 'Pro Teste cli%'`;
 	await sql.end();
 });
 

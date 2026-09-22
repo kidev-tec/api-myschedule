@@ -44,7 +44,7 @@ const app = createApp({
 const webhookApp = asaasWebhookRoutes(DATABASE_URL);
 
 let seq = 0;
-const uid = () => `test-uid-${Date.now()}-${seq++}`;
+const uid = () => `test-uid-wh-${Date.now()}-${seq++}`;
 
 function authed(uidValue: string) {
 	verifyMock.mockImplementation(async (token: string) => {
@@ -117,8 +117,10 @@ afterEach(() => {
 });
 
 afterAll(async () => {
-	await sql`DELETE FROM users WHERE email LIKE 'test-uid-%'`;
-	await sql`DELETE FROM businesses WHERE name LIKE 'Pro Teste%'`;
+	await sql`DELETE FROM users WHERE email LIKE 'test-uid-wh-%'`;
+	// Prefixo exclusivo: outros arquivos limpam LIKE 'Pro Teste%' em paralelo
+	// e apagavam os businesses deste teste no meio da execução (contaminação).
+	await sql`DELETE FROM businesses WHERE name LIKE 'Pro Teste Wh %'`;
 	await sql.end();
 	vi.unstubAllEnvs();
 });
@@ -204,7 +206,7 @@ describe("POST /webhooks/asaas", () => {
 			"cus_wh4",
 			"active",
 		);
-		const res = await hook({
+		const _res = await hook({
 			event: "PAYMENT.REFUNDED",
 			payment: { customer: "cus_wh4" },
 		});

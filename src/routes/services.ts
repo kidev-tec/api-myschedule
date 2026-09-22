@@ -16,7 +16,7 @@
 import { and, eq, ilike, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { type Db, getDb } from "../db/connection.js";
-import { businesses, services, users } from "../db/schema.js";
+import { businesses, services, users, workingHours } from "../db/schema.js";
 import type { AppEnv } from "../types.js";
 
 // BARRA B3: duração de serviço 15..480 min, múltiplo de 15.
@@ -251,6 +251,21 @@ export function meRoutes(databaseUrl: string) {
 		)[0];
 		/* v8 ignore next -- defensivo: user sempre tem business (FK NOT NULL + sync) */
 		if (!biz) return c.json({ error: "business não encontrado" }, 404);
+		// count() sempre devolve 1 linha — [0] garantido pelo Postgres
+		const svc = (
+			await db
+				.select({ n: sql<number>`count(*)::int` })
+				.from(services)
+				.where(
+					and(eq(services.businessId, biz.id), isNull(services.archivedAt)),
+				)
+		)[0]!;
+		const wh = (
+			await db
+				.select({ n: sql<number>`count(*)::int` })
+				.from(workingHours)
+				.where(eq(workingHours.userId, me.id))
+		)[0]!;
 		return c.json({
 			id: biz.id,
 			name: biz.name,
@@ -260,6 +275,7 @@ export function meRoutes(databaseUrl: string) {
 			subscription_status: biz.subscriptionStatus,
 			trial_ends_at: biz.trialEndsAt,
 			logo_url: biz.logoData ? `/v1/businesses/${biz.slug}/logo` : null,
+			onboarding_complete: svc.n > 0 && wh.n > 0,
 		});
 	});
 

@@ -34,6 +34,20 @@ function authed(u: string) {
 	return { Authorization: `Bearer ${u}` };
 }
 
+function isoToNoonLocal(daysAhead: number): string {
+	const now = new Date();
+	const noon = new Date(
+		Date.UTC(
+			now.getUTCFullYear(),
+			now.getUTCMonth(),
+			now.getUTCDate() + daysAhead,
+			15,
+			0,
+		),
+	); // 15:00Z = 12:00 em -03:00
+	return noon.toISOString();
+}
+
 beforeAll(async () => {
 	await sql`SELECT 1`;
 });
@@ -41,6 +55,7 @@ beforeAll(async () => {
 afterAll(async () => {
 	await sql`DELETE FROM appointments WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Val%')`;
 	await sql`DELETE FROM clients WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Val%')`;
+	await sql`DELETE FROM working_hours WHERE user_id IN (SELECT id FROM users WHERE email LIKE 'val-uid-%')`;
 	await sql`DELETE FROM services WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Val%')`;
 	await sql`DELETE FROM users WHERE email LIKE 'val-uid-%'`;
 	await sql`DELETE FROM businesses WHERE name LIKE 'Pro Val%'`;
@@ -51,13 +66,25 @@ async function setup(h: Record<string, string>) {
 	const res = await app.request("/v1/auth/sync", {
 		method: "POST",
 		headers: { "content-type": "application/json", ...h },
-		body: JSON.stringify({ name: "Pro Val Setup" }),
+		body: JSON.stringify({
+			name: `Pro Val Setup ${h.Authorization!.slice(-8)}`,
+		}),
 	});
 	const { business } = (await res.json()) as { business: { id: string } };
 	const [client] = await sql`
-    INSERT INTO clients (business_id, name, phone_e164) VALUES (${business.id}, 'Val C', '+5514999990999') RETURNING id`;
+    INSERT INTO clients (business_id, name, phone_e164) VALUES (${business.id}, 'Val C', ${"+5511" + String(90000000 + (Date.now() % 99999999)).slice(0, 8)}) RETURNING id`;
 	const [service] = await sql`
     INSERT INTO services (business_id, name, duration_min, price_cents) VALUES (${business.id}, 'Val S', 30, 3000) RETURNING id`;
+	// item 4: expediente 24h todos os dias (fixtures não testam expediente)
+	const meUid = h.Authorization!.slice("Bearer ".length);
+	const [user] = await sql`
+    SELECT id FROM users WHERE firebase_uid = ${meUid} LIMIT 1`;
+	for (const wd of [0, 1, 2, 3, 4, 5, 6]) {
+		await sql`
+    INSERT INTO working_hours (user_id, weekday, start_time, end_time) VALUES (${user!.id}, ${wd}, '00:00', '23:59')`;
+	}
+	// timezone do negócio definida (cobre branch biz[0]?.tz definida no domínio)
+	await sql`UPDATE businesses SET timezone = 'America/Sao_Paulo' WHERE id = ${business.id}`;
 	return {
 		clientId: (client as { id: string }).id,
 		serviceId: (service as { id: string }).id,
@@ -126,8 +153,10 @@ describe("validações /v1/appointments (400/404/403)", () => {
 			body: JSON.stringify({
 				clientId: "00000000-0000-0000-0000-00000000dead",
 				serviceId: "00000000-0000-0000-0000-00000000dead",
-				startsAt: new Date(Date.now() + 86_400_000).toISOString(),
-				endsAt: new Date(Date.now() + 90_000_000).toISOString(),
+				startsAt: isoToNoonLocal(1),
+				endsAt: new Date(
+					new Date(isoToNoonLocal(1)).getTime() + 1_800_000,
+				).toISOString(),
 			}),
 		});
 		expect(res.status).toBe(400);

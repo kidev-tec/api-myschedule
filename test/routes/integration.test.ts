@@ -31,7 +31,7 @@ const app = createApp({
 });
 
 let seq = 0;
-const uid = () => `test-uid-${Date.now()}-${seq++}`;
+const uid = () => `test-uid-integ-${Date.now()}-${seq++}`;
 
 function authed(uidValue: string) {
 	verifyMock.mockImplementation(async (token: string) => {
@@ -63,18 +63,24 @@ beforeAll(async () => {
 
 afterAll(async () => {
 	// limpeza dos dados de teste — ordem respeitando FKs
-	await sql`DELETE FROM appointments WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Teste%')`;
-	await sql`DELETE FROM clients WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Teste%')`;
-	await sql`DELETE FROM services WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Teste%')`;
-	await sql`DELETE FROM users WHERE email LIKE 'test-uid-%'`;
-	await sql`DELETE FROM businesses WHERE name LIKE 'Pro Teste%'`;
+	await sql`DELETE FROM appointments WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Integ %')`;
+	await sql`DELETE FROM clients WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Integ %')`;
+	await sql`DELETE FROM services WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Integ %')`;
+	// corrida: outro arquivo em paralelo pode ter apagado estes users já — ignorar FK
+	try {
+		await sql`DELETE FROM working_hours WHERE user_id IN (SELECT id FROM users WHERE email LIKE 'test-uid-integ-%')`;
+		await sql`DELETE FROM users WHERE email LIKE 'test-uid-integ-%'`;
+	} catch {
+		// registro já apagado por outro worker — ok
+	}
+	await sql`DELETE FROM businesses WHERE name LIKE 'Pro Integ %'`;
 	await sql.end();
 });
 
 describe("POST /v1/auth/sync (Postgres real)", () => {
 	it("cria business + user no 1º sync (201), com trial de 15 dias", async () => {
 		const h = authed(uid());
-		const res = await syncUser(h, "Pro Teste Primeiro");
+		const res = await syncUser(h, "Pro Integ Primeiro");
 		expect(res.status).toBe(201);
 		const body = (await res.json()) as {
 			user: { firebaseUid: string; role: string };
@@ -91,16 +97,16 @@ describe("POST /v1/auth/sync (Postgres real)", () => {
 			(1000 * 60 * 60 * 24);
 		expect(trialDays).toBeGreaterThan(14);
 		expect(trialDays).toBeLessThan(16);
-		expect(body.business.slug).toMatch(/^pro-teste-primeiro-/);
+		expect(body.business.slug).toMatch(/^pro-integ-primeiro-/);
 	});
 
 	it("é idempotente: 2º sync retorna o mesmo business (200)", async () => {
 		const u = uid();
 		const h = authed(u);
-		await syncUser(h, "Pro Teste Idem");
-		const res2 = await syncUser(h, "Pro Teste Idem");
+		await syncUser(h, "Pro Integ Idem");
+		const res2 = await syncUser(h, "Pro Integ Idem");
 		expect(res2.status).toBe(200);
-		const b1 = (await (await syncUser(h, "Pro Teste Idem")).json()) as {
+		const b1 = (await (await syncUser(h, "Pro Integ Idem")).json()) as {
 			business: { id: string };
 		};
 		const b2 = (await res2.json()) as { business: { id: string } };
@@ -108,7 +114,7 @@ describe("POST /v1/auth/sync (Postgres real)", () => {
 	});
 
 	it("sufixa uid no nome se nome+segmento já existe", async () => {
-		const nome = `Pro Teste Clash ${Date.now()}`;
+		const nome = `Pro Integ Clash ${Date.now()}`;
 		const first = await syncUser(authed(uid()), nome);
 		expect(first.status).toBe(201);
 		const second = await syncUser(authed(uid()), nome);
@@ -124,14 +130,28 @@ describe("POST /v1/auth/sync (Postgres real)", () => {
 });
 
 describe("POST/GET /v1/appointments (Postgres real, constraint EXCLUDE ativa)", () => {
+	// Helper: seed working hours 24/7 pro professional (owner = user do token)
+	async function seedWorkingHours(headers: Record<string, string>) {
+		const token = headers.Authorization?.replace("Bearer ", "");
+		if (!token) return;
+		const me = await sql`SELECT id FROM users WHERE firebase_uid = ${token}`;
+		if (me.length > 0) {
+			const profId = me[0]!.id;
+			for (let wd = 0; wd < 7; wd++) {
+				await sql`INSERT INTO working_hours (user_id, weekday, start_time, end_time) VALUES (${profId}, ${wd}, '00:00', '23:59') ON CONFLICT DO NOTHING`;
+			}
+		}
+	}
+
 	it("cria agendamento e lista na agenda do dia", async () => {
 		const h = authed(uid());
 		const { business } = (await (
-			await syncUser(h, "Pro Teste Agenda")
+			await syncUser(h, "Pro Integ Agenda")
 		).json()) as never as {
 			user: { id: string };
 			business: { id: string };
 		};
+		await seedWorkingHours(h);
 
 		// cliente + serviço direto no banco (CRUDs vêm em F1)
 		const client = await one<{ id: string }>(sql`
@@ -172,11 +192,12 @@ describe("POST/GET /v1/appointments (Postgres real, constraint EXCLUDE ativa)", 
 	it("rejeita overlap com 409 amigável (defesa domínio)", async () => {
 		const h = authed(uid());
 		const { business } = (await (
-			await syncUser(h, "Pro Teste Overlap")
+			await syncUser(h, "Pro Integ Overlap")
 		).json()) as never as {
 			user: { id: string };
 			business: { id: string };
 		};
+		await seedWorkingHours(h);
 		const client = await one<{ id: string }>(sql`
       INSERT INTO clients (business_id, name, phone_e164)
       VALUES (${business.id}, 'Bia', '+5514999990002') RETURNING id`);
@@ -212,10 +233,11 @@ describe("POST/GET /v1/appointments (Postgres real, constraint EXCLUDE ativa)", 
 	it("PATCH cancela e libera o slot (cancelado não conflita)", async () => {
 		const h = authed(uid());
 		const { business } = (await (
-			await syncUser(h, "Pro Teste Cancela")
+			await syncUser(h, "Pro Integ Cancela")
 		).json()) as never as {
 			business: { id: string };
 		};
+		await seedWorkingHours(h);
 		const client = await one<{ id: string }>(sql`
       INSERT INTO clients (business_id, name, phone_e164)
       VALUES (${business.id}, 'Cris', '+5514999990003') RETURNING id`);
@@ -265,7 +287,7 @@ describe("POST/GET /v1/appointments (Postgres real, constraint EXCLUDE ativa)", 
 
 	it("404 ao cancelar agendamento inexistente", async () => {
 		const h = authed(uid());
-		await syncUser(h, "Pro Teste 404");
+		await syncUser(h, "Pro Integ 404");
 		const res = await app.request(
 			`/v1/appointments/00000000-0000-0000-0000-00000000dead`,
 			{

@@ -42,7 +42,7 @@ const fetchMock = vi.fn();
 vi.stubGlobal("fetch", fetchMock);
 
 let seq = 0;
-const uid = () => `test-uid-${Date.now()}-${seq++}`;
+const uid = () => `test-uid-bill-${Date.now()}-${seq++}`;
 
 function authed(uidValue: string) {
 	verifyMock.mockImplementation(async (token: string) => {
@@ -81,15 +81,21 @@ afterEach(() => {
 });
 
 afterAll(async () => {
-	await sql`DELETE FROM users WHERE email LIKE 'test-uid-%'`;
-	await sql`DELETE FROM businesses WHERE name LIKE 'Pro Teste%'`;
+	// corrida: outro arquivo em paralelo pode ter apagado estes users já — ignorar FK
+	try {
+		await sql`DELETE FROM working_hours WHERE user_id IN (SELECT id FROM users WHERE email LIKE 'test-uid-bill-%')`;
+		await sql`DELETE FROM users WHERE email LIKE 'test-uid-bill-%'`;
+	} catch {
+		// registro já apagado por outro worker — ok
+	}
+	await sql`DELETE FROM businesses WHERE name LIKE 'Pro Teste bill%'`;
 	await sql.end();
 });
 
 describe("POST /v1/billing/checkout", () => {
 	it("503 fail-closed sem ASAAS_API_KEY (default do CI)", async () => {
 		vi.stubEnv("ASAAS_API_KEY", "");
-		const u = await createUser("Pro Teste Billing 503");
+		const u = await createUser("Pro Teste bill Billing 503");
 		const res = await app.request("/v1/billing/checkout", {
 			method: "POST",
 			headers: { "content-type": "application/json", ...authed(u) },
@@ -102,7 +108,7 @@ describe("POST /v1/billing/checkout", () => {
 	it("503 com chave mas ASAAS_PLAN_VALUE inválido", async () => {
 		vi.stubEnv("ASAAS_API_KEY", "k");
 		vi.stubEnv("ASAAS_PLAN_VALUE", "abc");
-		const u = await createUser("Pro Teste Billing cfg");
+		const u = await createUser("Pro Teste bill Billing cfg");
 		const res = await app.request("/v1/billing/checkout", {
 			method: "POST",
 			headers: { "content-type": "application/json", ...authed(u) },
@@ -114,7 +120,7 @@ describe("POST /v1/billing/checkout", () => {
 	it("400 sem cpf_cnpj no body", async () => {
 		vi.stubEnv("ASAAS_API_KEY", "k");
 		vi.stubEnv("ASAAS_PLAN_VALUE", "2990");
-		const u = await createUser("Pro Teste Billing NoCpf");
+		const u = await createUser("Pro Teste bill Billing NoCpf");
 		const res = await app.request("/v1/billing/checkout", {
 			method: "POST",
 			headers: { "content-type": "application/json", ...authed(u) },
@@ -127,7 +133,7 @@ describe("POST /v1/billing/checkout", () => {
 	it("body JSON quebrado → 400 pelo catch do json()", async () => {
 		vi.stubEnv("ASAAS_API_KEY", "k");
 		vi.stubEnv("ASAAS_PLAN_VALUE", "2990");
-		const u = await createUser("Pro Teste Billing BadJson");
+		const u = await createUser("Pro Teste bill Billing BadJson");
 		const res = await app.request("/v1/billing/checkout", {
 			method: "POST",
 			headers: { "content-type": "application/json", ...authed(u) },
@@ -140,7 +146,7 @@ describe("POST /v1/billing/checkout", () => {
 	it("feliz: cria customer+subscription, persiste ids e devolve invoiceUrl", async () => {
 		vi.stubEnv("ASAAS_API_KEY", "k");
 		vi.stubEnv("ASAAS_PLAN_VALUE", "2990");
-		const u = await createUser("Pro Teste Billing Ok");
+		const u = await createUser("Pro Teste bill Billing Ok");
 
 		// 1ª chamada = customers, 2ª = subscriptions
 		fetchMock
@@ -205,7 +211,7 @@ describe("POST /v1/billing/checkout", () => {
 	it("reusa o asaas_customer_id existente (1 chamada de rede)", async () => {
 		vi.stubEnv("ASAAS_API_KEY", "k");
 		vi.stubEnv("ASAAS_PLAN_VALUE", "2990");
-		const u = await createUser("Pro Teste Billing Reuse");
+		const u = await createUser("Pro Teste bill Billing Reuse");
 		const db = getDb(DATABASE_URL);
 		await db
 			.update(businesses)
@@ -244,7 +250,7 @@ describe("POST /v1/billing/checkout", () => {
 	it("409 quando o business já tem assinatura", async () => {
 		vi.stubEnv("ASAAS_API_KEY", "k");
 		vi.stubEnv("ASAAS_PLAN_VALUE", "2990");
-		const u = await createUser("Pro Teste Billing Dup");
+		const u = await createUser("Pro Teste bill Billing Dup");
 		const db = getDb(DATABASE_URL);
 		await db
 			.update(businesses)
@@ -263,7 +269,7 @@ describe("POST /v1/billing/checkout", () => {
 	it("503 quando o Asaas falha (sem vazar erro interno)", async () => {
 		vi.stubEnv("ASAAS_API_KEY", "k");
 		vi.stubEnv("ASAAS_PLAN_VALUE", "2990");
-		const u = await createUser("Pro Teste Billing Fail");
+		const u = await createUser("Pro Teste bill Billing Fail");
 		fetchMock.mockResolvedValue(new Response("boom", { status: 500 }));
 
 		const res = await app.request("/v1/billing/checkout", {
@@ -280,7 +286,7 @@ describe("POST /v1/billing/checkout", () => {
 	it("usa bankSlipUrl quando o payment não tem invoiceUrl", async () => {
 		vi.stubEnv("ASAAS_API_KEY", "k");
 		vi.stubEnv("ASAAS_PLAN_VALUE", "2990");
-		const u = await createUser("Pro Teste Billing Slip");
+		const u = await createUser("Pro Teste bill Billing Slip");
 		// payments sem invoiceUrl, sem bankSlipUrl, e data vazio → null
 		fetchMock
 			.mockResolvedValueOnce(
@@ -311,7 +317,7 @@ describe("POST /v1/billing/checkout", () => {
 	}, async () => {
 		vi.stubEnv("ASAAS_API_KEY", "k");
 		vi.stubEnv("ASAAS_PLAN_VALUE", "2990");
-		const u = await createUser("Pro Teste Billing PayErr");
+		const u = await createUser("Pro Teste bill Billing PayErr");
 		fetchMock
 			.mockResolvedValueOnce(
 				new Response(JSON.stringify({ id: "cus_e" }), { status: 200 }),
@@ -335,7 +341,7 @@ describe("POST /v1/billing/checkout", () => {
 	}, async () => {
 		vi.stubEnv("ASAAS_API_KEY", "k");
 		vi.stubEnv("ASAAS_PLAN_VALUE", "2990");
-		const u = await createUser("Pro Teste Billing Null");
+		const u = await createUser("Pro Teste bill Billing Null");
 		fetchMock
 			.mockResolvedValueOnce(
 				new Response(JSON.stringify({ id: "cus_n" }), { status: 200 }),

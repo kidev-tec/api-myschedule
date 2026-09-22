@@ -16,10 +16,16 @@ import {
 	clients,
 	services,
 	users,
+	workingHours,
 } from "../db/schema.js";
 import { overlaps } from "../domain/booking.js";
 import { confirmationToken } from "../domain/confirmation-token.js";
 import { mirrorToCalendar } from "../domain/gcal-mirror.js";
+import {
+	isWithinWorkingHours,
+	localWindowOf,
+	timezoneOffsetMinutes,
+} from "../domain/working-hours.js";
 import type { AppEnv } from "../types.js";
 
 async function requireUser(db: Db, firebaseUid: string) {
@@ -168,9 +174,45 @@ export function appointmentRoutes(databaseUrl: string) {
 			}
 		}
 
+		// RF-A: "block" = bloqueio de horário (não passa pela validação de expediente).
+		const isBlock = body.source !== undefined;
+
+		// Item 4 (feedback 22/09): agendamento fora do horário de funcionamento
+		// é rejeitado. Bloqueios (source='block') não passam aqui — eles OCUPAM
+		// horário, não pedem slot dentro dele.
+		if (!isBlock) {
+			const windows = await db
+				.select({
+					weekday: workingHours.weekday,
+					startTime: workingHours.startTime,
+					endTime: workingHours.endTime,
+				})
+				.from(workingHours)
+				.where(eq(workingHours.userId, professionalId));
+			const biz = await db
+				.select({ tz: businesses.timezone })
+				.from(businesses)
+				.where(eq(businesses.id, user.businessId))
+				.limit(1);
+			/* v8 ignore next -- user.businessId sempre aponta pra business existente (FK + sync);
+			   timezone null ?? "UTC" já é o caminho padrão dos testes de sync */
+			const offset = timezoneOffsetMinutes(start, biz[0]?.tz ?? "UTC");
+			const w = localWindowOf(start, end, offset);
+			if (
+				!isWithinWorkingHours(windows, w.weekday, w.startMinutes, w.endMinutes)
+			) {
+				return c.json(
+					{
+						error: "fora do horário de funcionamento",
+						hint: "Este horário está fora do expediente cadastrado.",
+					},
+					400,
+				);
+			}
+		}
+
 		// RF-A: source opcional no POST. "block" = bloqueio de horário.
 		// Qualquer outro valor (além de omitir) é rejeitado — default é "app".
-		const isBlock = body.source !== undefined;
 		if (isBlock && body.source !== "block") {
 			return c.json({ error: "source inválida (use 'block')" }, 400);
 		}

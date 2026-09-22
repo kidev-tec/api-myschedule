@@ -30,7 +30,7 @@ const app = createApp({
 });
 
 let seq = 0;
-const uid = () => `test-uid-${Date.now()}-${seq++}`;
+const uid = () => `test-uid-onb-${Date.now()}-${seq++}`;
 
 function authed(uidValue: string) {
 	verifyMock.mockImplementation(async (token: string) => {
@@ -49,7 +49,7 @@ async function syncUser(headers: Record<string, string>) {
 	return app.request("/v1/auth/sync", {
 		method: "POST",
 		headers: { "content-type": "application/json", ...headers },
-		body: JSON.stringify({ name: `Pro Teste ${uidValue}` }),
+		body: JSON.stringify({ name: `Pro Teste onb ${uidValue}` }),
 	});
 }
 
@@ -63,13 +63,59 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-	await sql`DELETE FROM working_hours WHERE user_id IN (SELECT id FROM users WHERE email LIKE 'test-uid-%')`;
-	await sql`DELETE FROM appointments WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Teste%')`;
-	await sql`DELETE FROM clients WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Teste%')`;
-	await sql`DELETE FROM services WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Teste%')`;
-	await sql`DELETE FROM users WHERE email LIKE 'test-uid-%'`;
-	await sql`DELETE FROM businesses WHERE name LIKE 'Pro Teste%'`;
+	await sql`DELETE FROM working_hours WHERE user_id IN (SELECT id FROM users WHERE email LIKE 'test-uid-onb-%')`;
+	await sql`DELETE FROM appointments WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Teste onb%')`;
+	await sql`DELETE FROM clients WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Teste onb%')`;
+	await sql`DELETE FROM services WHERE business_id IN (SELECT id FROM businesses WHERE name LIKE 'Pro Teste onb%')`;
+	// corrida: outro arquivo em paralelo pode ter apagado estes users já — ignorar FK
+	try {
+		await sql`DELETE FROM working_hours WHERE user_id IN (SELECT id FROM users WHERE email LIKE 'test-uid-onb-%')`;
+		await sql`DELETE FROM users WHERE email LIKE 'test-uid-onb-%'`;
+	} catch {
+		// registro já apagado por outro worker — ok
+	}
+	await sql`DELETE FROM businesses WHERE name LIKE 'Pro Teste onb%'`;
 	await sql.end();
+});
+
+describe("GET /v1/me onboarding_complete", () => {
+	it("false logo após o sync (sem serviço/horários), true após onboarding", async () => {
+		const h = authed(uid());
+		await createdUser(h);
+
+		const before = await app.request("/v1/me", { headers: h });
+		expect(before.status).toBe(200);
+		const beforeBody = (await before.json()) as {
+			onboarding_complete: boolean;
+		};
+		expect(beforeBody.onboarding_complete).toBe(false);
+
+		// cria serviço + horários (mesmo fluxo do onboarding do app)
+		const svc = await app.request("/v1/services", {
+			method: "POST",
+			headers: { "content-type": "application/json", ...h },
+			body: JSON.stringify({
+				name: "Corte",
+				duration_min: 30,
+				price_cents: 5000,
+			}),
+		});
+		expect(svc.status).toBe(201);
+		const wh = await app.request("/v1/working-hours", {
+			method: "PUT",
+			headers: { "content-type": "application/json", ...h },
+			body: JSON.stringify({
+				slots: [{ weekday: 1, start_minute: 540, end_minute: 1080 }],
+			}),
+		});
+		expect([200, 201]).toContain(wh.status);
+
+		const after = await app.request("/v1/me", { headers: h });
+		const afterBody = (await after.json()) as {
+			onboarding_complete: boolean;
+		};
+		expect(afterBody.onboarding_complete).toBe(true);
+	});
 });
 
 describe("PATCH /v1/me", () => {
