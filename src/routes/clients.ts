@@ -11,10 +11,10 @@
  * - DELETE /clients/:id → soft-delete (deleted_at)
  */
 
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { type Db, getDb } from "../db/connection.js";
-import { clients, users } from "../db/schema.js";
+import { appointments, clients, services, users } from "../db/schema.js";
 import type { AppEnv } from "../types.js";
 
 function serialize(r: typeof clients.$inferSelect) {
@@ -118,6 +118,94 @@ export function clientsRoutes(databaseUrl: string) {
 		const row = rows[0];
 		if (!row) return c.json({ error: "cliente não encontrado" }, 404);
 		return c.json(serialize(row));
+	});
+
+	/**
+	 * F4 — histórico do cliente: GET /clients/:id/history
+	 * Últimos 50 appointments do cliente + agregados (total, última visita).
+	 * Só appointments do próprio business. Serve pro prestador ver
+	 * "esse cliente veio 12x, sempre corta degradê" na hora de agendar.
+	 */
+	routes.get("/clients/:id/history", async (c) => {
+		const me = (
+			await db
+				.select()
+				.from(users)
+				.where(eq(users.firebaseUid, c.get("authUser").uid))
+				.limit(1)
+		)[0];
+		/* v8 ignore next -- inatingível: auth retorna antes */
+		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		const id = c.req.param("id");
+		if (!UUID_RE.test(id)) return c.json({ error: "id inválido" }, 400);
+
+		// cliente tem que ser do business do prestador
+		const client = (
+			await db
+				.select({ id: clients.id })
+				.from(clients)
+				.where(
+					and(
+						eq(clients.id, id),
+						eq(clients.businessId, me.businessId),
+						isNull(clients.deletedAt),
+					),
+				)
+				.limit(1)
+		)[0];
+		if (!client) return c.json({ error: "cliente não encontrado" }, 404);
+
+		const agg = (
+			await db
+				.select({
+					total: sql<number>`count(*)::int`,
+					canceled: sql<number>`count(*) filter (where ${appointments.status} = 'canceled')::int`,
+					noshow: sql<number>`count(*) filter (where ${appointments.status} = 'noshow')::int`,
+					lastVisit: sql<Date | null>`max(${appointments.startsAt})`,
+				})
+				.from(appointments)
+				.where(
+					and(
+						eq(appointments.clientId, id),
+						eq(appointments.businessId, me.businessId),
+					),
+				)
+		)[0]!;
+
+		const recent = await db
+			.select({
+				id: appointments.id,
+				startsAt: appointments.startsAt,
+				endsAt: appointments.endsAt,
+				status: appointments.status,
+				serviceName: services.name,
+				priceCents: services.priceCents,
+			})
+			.from(appointments)
+			.innerJoin(services, eq(services.id, appointments.serviceId))
+			.where(
+				and(
+					eq(appointments.clientId, id),
+					eq(appointments.businessId, me.businessId),
+				),
+			)
+			.orderBy(sql`${appointments.startsAt} desc`)
+			.limit(50);
+
+		return c.json({
+			total: agg.total,
+			canceled: agg.canceled,
+			noshow: agg.noshow,
+			last_visit: agg.lastVisit,
+			recent: recent.map((r) => ({
+				id: r.id,
+				starts_at: r.startsAt.toISOString(),
+				ends_at: r.endsAt.toISOString(),
+				status: r.status,
+				service_name: r.serviceName,
+				price_cents: r.priceCents,
+			})),
+		});
 	});
 
 	routes.patch("/clients/:id", async (c) => {

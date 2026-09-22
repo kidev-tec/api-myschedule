@@ -16,7 +16,7 @@
 import { and, eq, ilike, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { type Db, getDb } from "../db/connection.js";
-import { businesses, services, users } from "../db/schema.js";
+import { businesses, services, users, workingHours } from "../db/schema.js";
 import type { AppEnv } from "../types.js";
 
 // BARRA B3: duração de serviço 15..480 min, múltiplo de 15.
@@ -251,6 +251,21 @@ export function meRoutes(databaseUrl: string) {
 		)[0];
 		/* v8 ignore next -- defensivo: user sempre tem business (FK NOT NULL + sync) */
 		if (!biz) return c.json({ error: "business não encontrado" }, 404);
+		// count() sempre devolve 1 linha — [0] garantido pelo Postgres
+		const svc = (
+			await db
+				.select({ n: sql<number>`count(*)::int` })
+				.from(services)
+				.where(
+					and(eq(services.businessId, biz.id), isNull(services.archivedAt)),
+				)
+		)[0]!;
+		const wh = (
+			await db
+				.select({ n: sql<number>`count(*)::int` })
+				.from(workingHours)
+				.where(eq(workingHours.userId, me.id))
+		)[0]!;
 		return c.json({
 			id: biz.id,
 			name: biz.name,
@@ -260,6 +275,15 @@ export function meRoutes(databaseUrl: string) {
 			subscription_status: biz.subscriptionStatus,
 			trial_ends_at: biz.trialEndsAt,
 			logo_url: biz.logoData ? `/v1/businesses/${biz.slug}/logo` : null,
+			onboarding_complete: svc.n > 0 && wh.n > 0,
+			address: {
+				street: biz.addressStreet,
+				number: biz.addressNumber,
+				district: biz.addressDistrict,
+				city: biz.addressCity,
+				state: biz.addressState,
+				zip: biz.addressZip,
+			},
 		});
 	});
 
@@ -334,6 +358,7 @@ export function meRoutes(databaseUrl: string) {
 		const body = (await c.req.json().catch(() => null)) as {
 			business_name?: unknown;
 			business_type?: unknown;
+			address?: unknown;
 		} | null;
 		// PATCH parcial: cada campo é opcional, mas se vier tem que ser válido.
 		// (ensureProvisioned do app faz PATCH só com business_type; o
@@ -352,8 +377,49 @@ export function meRoutes(databaseUrl: string) {
 			}
 			businessName = trimmed;
 		}
+		// Endereço (F1): objeto opcional com campos de texto; string vazia
+		// limpa o campo. Validação: tamanhos máximos por coluna.
+		let addressUpdate: Record<string, string | null> | undefined;
+		if (body?.address !== undefined) {
+			if (typeof body.address !== "object" || body.address === null) {
+				return c.json({ error: "address deve ser um objeto" }, 400);
+			}
+			const a = body.address as Record<string, unknown>;
+			const LIMITS: Record<string, number> = {
+				street: 200,
+				number: 20,
+				district: 80,
+				city: 80,
+				state: 2,
+				zip: 9,
+			};
+			addressUpdate = {};
+			for (const [key, max] of Object.entries(LIMITS)) {
+				const v = a[key];
+				if (v === undefined) continue;
+				if (v !== null && typeof v !== "string") {
+					return c.json({ error: `address.${key} deve ser string` }, 400);
+				}
+				const s = typeof v === "string" ? v.trim() : v;
+				if (typeof s === "string" && s.length > max) {
+					return c.json(
+						{ error: `address.${key} deve ter até ${max} caracteres` },
+						400,
+					);
+				}
+				addressUpdate[`address${key.charAt(0).toUpperCase()}${key.slice(1)}`] =
+					s === "" ? null : (s as string);
+			}
+			if (Object.keys(addressUpdate).length === 0) {
+				addressUpdate = undefined;
+			}
+		}
 		// PATCH sem nenhum campo conhecido (body null/quebrado/vazio) → 400.
-		if (businessName === undefined && body?.business_type === undefined) {
+		if (
+			businessName === undefined &&
+			body?.business_type === undefined &&
+			addressUpdate === undefined
+		) {
 			return c.json({ error: "nada para atualizar" }, 400);
 		}
 		// Segmento: opcional; se vier, valida contra a whitelist de presets.
@@ -419,12 +485,14 @@ export function meRoutes(databaseUrl: string) {
 			.set({
 				...(businessName !== undefined ? { name: businessName } : {}),
 				...(businessType ? { businessType } : {}),
+				...(addressUpdate ?? {}),
 			})
 			.where(eq(businesses.id, me.businessId));
 		return c.json({
 			ok: true,
 			business_name: businessName ?? null,
 			business_type: businessType ?? null,
+			address: addressUpdate ?? null,
 		});
 	});
 

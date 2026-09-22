@@ -470,3 +470,116 @@ describe("push no booking público (B3)", () => {
 		expect(call.notification.body).toContain("Cliente Push");
 	});
 });
+
+describe("POST /v1/internal/appointment-reminders (F2)", () => {
+	it("sem INTERNAL_KEY → 503; header errado → 401", async () => {
+		const prev = process.env.INTERNAL_KEY;
+		delete process.env.INTERNAL_KEY;
+		try {
+			const res = await app.request("/v1/internal/appointment-reminders", {
+				method: "POST",
+			});
+			expect(res.status).toBe(503);
+		} finally {
+			if (prev !== undefined) process.env.INTERNAL_KEY = prev;
+		}
+		process.env.INTERNAL_KEY = "test-secret";
+		try {
+			const bad = await app.request("/v1/internal/appointment-reminders", {
+				method: "POST",
+				headers: { "x-internal-key": "errada" },
+			});
+			expect(bad.status).toBe(401);
+		} finally {
+			delete process.env.INTERNAL_KEY;
+		}
+	});
+
+	it("envia push pro prestador p/ appointment em <=24h e marca reminder_sent_at (idempotente)", async () => {
+		process.env.INTERNAL_KEY = "test-secret";
+		try {
+			const h = authed(uid());
+			await syncUser(h);
+			const { id: bizId } = await me(h);
+			// serviço + cliente + appointment confirmado começando em 5h
+			const svc = await app.request("/v1/services", {
+				method: "POST",
+				headers: { "content-type": "application/json", ...h },
+				body: JSON.stringify({
+					name: "Corte F2",
+					duration_min: 30,
+					price_cents: 5000,
+				}),
+			});
+			const svcBody = (await svc.json()) as { id: string };
+			const cli = await sql`
+				INSERT INTO clients (business_id, name, phone_e164) VALUES (${bizId}, 'Cli F2', '+5511988887777') RETURNING id`;
+			const cliId = (cli[0] as { id: string }).id;
+			const uidValue = h.Authorization.slice("Bearer ".length);
+			const appt = await sql`
+				INSERT INTO appointments (business_id, client_id, service_id, user_id, starts_at, ends_at, status)
+				VALUES (${bizId}, ${cliId}, ${svcBody.id}, (SELECT id FROM users WHERE firebase_uid = ${uidValue}),
+					now() + interval '5 hours', now() + interval '5 hours 30 minutes', 'confirmed')
+				RETURNING id`;
+			const apptId = (appt[0] as { id: string }).id;
+
+			// device token pro push ter pra onde ir
+			await app.request("/v1/devices", {
+				method: "POST",
+				headers: { "content-type": "application/json", ...h },
+				body: JSON.stringify({
+					fcmToken: `fcm-${apptId}`,
+					platform: "android",
+				}),
+			});
+			sendMock.mockClear();
+
+			const ok = await app.request("/v1/internal/appointment-reminders", {
+				method: "POST",
+				headers: { "x-internal-key": "test-secret" },
+			});
+			expect(ok.status).toBe(200);
+			const body = (await ok.json()) as { sent: number; checked: number };
+			expect(body.checked).toBeGreaterThanOrEqual(1);
+			expect(body.sent).toBeGreaterThanOrEqual(1);
+			expect(sendMock).toHaveBeenCalled();
+
+			// reminder_sent_at marcado
+			const marked = await sql`
+				SELECT reminder_sent_at FROM appointments WHERE id = ${apptId}`;
+			expect(
+				(marked[0] as { reminder_sent_at: Date | null }).reminder_sent_at,
+			).not.toBeNull();
+
+			// segunda chamada NÃO reenvia (idempotência)
+			sendMock.mockClear();
+			const again = await app.request("/v1/internal/appointment-reminders", {
+				method: "POST",
+				headers: { "x-internal-key": "test-secret" },
+			});
+			const b2 = (await again.json()) as { sent: number };
+			expect(b2.sent).toBe(0);
+			expect(sendMock).not.toHaveBeenCalled();
+
+			// cancelado no meio NÃO recebe lembrete
+			const canceled = await sql`
+				INSERT INTO appointments (business_id, client_id, service_id, user_id, starts_at, ends_at, status)
+				VALUES (${bizId}, ${cliId}, ${svcBody.id}, (SELECT id FROM users WHERE firebase_uid = ${uidValue}),
+					now() + interval '6 hours', now() + interval '6 hours 30 minutes', 'canceled')
+				RETURNING id`;
+			const canceledId = (canceled[0] as { id: string }).id;
+			const r3 = await app.request("/v1/internal/appointment-reminders", {
+				method: "POST",
+				headers: { "x-internal-key": "test-secret" },
+			});
+			const b3 = (await r3.json()) as { sent: number };
+			const stillNull = await sql`
+				SELECT reminder_sent_at FROM appointments WHERE id = ${canceledId}`;
+			expect(
+				(stillNull[0] as { reminder_sent_at: Date | null }).reminder_sent_at,
+			).toBeNull();
+		} finally {
+			delete process.env.INTERNAL_KEY;
+		}
+	});
+});

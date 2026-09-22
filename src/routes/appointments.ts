@@ -7,7 +7,7 @@
  *    → erro SQL 23P01 mapeado para 409
  */
 
-import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, lt, lte, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { type Db, getDb } from "../db/connection.js";
 import {
@@ -15,11 +15,14 @@ import {
 	businesses,
 	clients,
 	services,
+	timeOffs,
 	users,
+	waitlist,
 } from "../db/schema.js";
 import { overlaps } from "../domain/booking.js";
 import { confirmationToken } from "../domain/confirmation-token.js";
 import { mirrorToCalendar } from "../domain/gcal-mirror.js";
+import { sendToUser } from "../services/fcm.js";
 import type { AppEnv } from "../types.js";
 
 async function requireUser(db: Db, firebaseUid: string) {
@@ -167,6 +170,30 @@ export function appointmentRoutes(databaseUrl: string) {
 				);
 			}
 		}
+		// F3: bloqueios de agenda (time-offs) também conflitam
+		const timeOffRows = await db
+			.select({ startsAt: timeOffs.startsAt, endsAt: timeOffs.endsAt })
+			.from(timeOffs)
+			.where(
+				and(
+					eq(timeOffs.userId, professionalId),
+					lt(timeOffs.startsAt, end),
+					gt(timeOffs.endsAt, start),
+				),
+			);
+		if (timeOffRows.length > 0) {
+			return c.json(
+				{
+					error: "conflito de horário",
+					hint: "Este horário está bloqueado na agenda do profissional.",
+					conflictWith: {
+						startsAt: timeOffRows[0]!.startsAt,
+						endsAt: timeOffRows[0]!.endsAt,
+					},
+				},
+				409,
+			);
+		}
 
 		// RF-A: source opcional no POST. "block" = bloqueio de horário.
 		// Qualquer outro valor (além de omitir) é rejeitado — default é "app".
@@ -296,6 +323,24 @@ export function appointmentRoutes(databaseUrl: string) {
 			) {
 				return c.json({ error: "status inválido" }, 400);
 			}
+			// Decisão de produto 21/09: agendamento cujo horário já passou não
+			// muda de estado (cancelar/concluir/faltar exigem antecedência).
+			// Mudar startsAt na MESMA request reabre o horário — nesse caso a
+			// mudança de status é legítima (remarcação + confirmação).
+			const rechedules =
+				body.startsAt !== undefined || body.endsAt !== undefined;
+			const newStart = rechedules
+				? (parseDate(body.startsAt) ?? current.startsAt)
+				: current.startsAt;
+			if (!rechedules && newStart.getTime() <= Date.now()) {
+				return c.json(
+					{
+						error:
+							"Este horário já passou — não é possível alterar o agendamento",
+					},
+					400,
+				);
+			}
 			patch.status = body.status;
 			if (body.status === "canceled") {
 				patch.canceledAt = new Date();
@@ -424,6 +469,30 @@ export function appointmentRoutes(databaseUrl: string) {
 				mirrorToCalendar(databaseUrl, updated.id).catch((e) =>
 					console.error("[gcal] espelho falhou:", e),
 				);
+				// F5: cancelou → conta pra lista de espera do dia quantos
+				// interessados existem (push best-effort pro prestador avisar)
+				if (patch.status === "canceled") {
+					const dayStr = updated.startsAt.toISOString().slice(0, 10);
+					const waiting = await db
+						.select({ n: sql<number>`count(*)::int` })
+						.from(waitlist)
+						.where(
+							and(
+								eq(waitlist.businessId, user.businessId),
+								sql`${waitlist.desiredDate}::date = ${dayStr}::date`,
+								eq(waitlist.status, "waiting"),
+							),
+						);
+					const n = waiting[0]?.n ?? 0;
+					if (n > 0) {
+						sendToUser(
+							databaseUrl,
+							user.id,
+							"Vaga abriu — lista de espera",
+							`${n} cliente${n > 1 ? "s" : ""} na espera pra esse dia. Abre a lista de espera pra avisar.`,
+						).catch(() => undefined);
+					}
+				}
 			}
 
 			return c.json({ appointment: updated });
