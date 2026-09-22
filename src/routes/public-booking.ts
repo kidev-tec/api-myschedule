@@ -86,6 +86,16 @@ function infoJson(
 			name: loaded.biz.name,
 			business_type: loaded.biz.businessType,
 			timezone: loaded.biz.timezone,
+			// endereço (F1): onde o atendimento acontece — cada campo pode ser
+			// null (business sem endereço cadastrado não exibe a linha)
+			address: {
+				street: loaded.biz.addressStreet,
+				number: loaded.biz.addressNumber,
+				district: loaded.biz.addressDistrict,
+				city: loaded.biz.addressCity,
+				state: loaded.biz.addressState,
+				zip: loaded.biz.addressZip,
+			},
 		},
 		professional: { name: loaded.pro.name },
 		services: svc,
@@ -624,6 +634,14 @@ function renderForm(msg){
   app.innerHTML = \`
     <h1>\${INFO.business.name}</h1>
     <p class="mut">com \${INFO.professional.name} · agende teu horário</p>
+    \${INFO.business.address && INFO.business.address.street ? \`
+    <p class="mut" id="biz-address">📍 \${[
+      INFO.business.address.street,
+      INFO.business.address.number,
+      INFO.business.address.district,
+      INFO.business.address.city,
+      INFO.business.address.state
+    ].filter(Boolean).join(', ')}\${INFO.business.address.zip ? ' · CEP ' + INFO.business.address.zip : ''}</p>\` : ''}
     <div class="err" id="err"></div>
     <div class="card">
       <label>1. Escolhe o serviço</label>

@@ -93,6 +93,15 @@ export const businesses = pgTable("businesses", {
 	// O webhook (Fase B) usa asaas_customer_id pra achar o business.
 	asaasCustomerId: varchar("asaas_customer_id", { length: 64 }),
 	asaasSubscriptionId: varchar("asaas_subscription_id", { length: 64 }),
+	// Endereço (F1, migration 0013): onde o atendimento acontece — mostrado
+	// na página pública de booking. Campos separados pra futura integração
+	// com mapas/rota. Todos opcionais (business online/externo não tem).
+	addressStreet: varchar("address_street", { length: 200 }),
+	addressNumber: varchar("address_number", { length: 20 }),
+	addressDistrict: varchar("address_district", { length: 80 }),
+	addressCity: varchar("address_city", { length: 80 }),
+	addressState: varchar("address_state", { length: 2 }),
+	addressZip: varchar("address_zip", { length: 9 }),
 	createdAt: timestamp("created_at", { withTimezone: true })
 		.notNull()
 		.defaultNow(),
