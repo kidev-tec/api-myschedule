@@ -13,7 +13,20 @@
 import { and, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { getDb } from "../db/connection.js";
-import { businesses, users } from "../db/schema.js";
+import {
+	appointments,
+	businesses,
+	clients,
+	deviceTokens,
+	loyaltyCards,
+	loyaltyPrograms,
+	messageTemplates,
+	services,
+	subscriptions,
+	transactions,
+	users,
+	workingHours,
+} from "../db/schema.js";
 import type { AppEnv } from "../types.js";
 
 export function slugify(name: string): string {
@@ -140,6 +153,71 @@ export function authSyncRoutes(databaseUrl: string) {
 		});
 
 		return c.json(created, 201);
+	});
+
+	/**
+	 * DELETE /v1/auth/account — exclusão da conta (LGPD art. 18, VI).
+	 *
+	 * Apaga TODOS os dados do usuário e do business em cascata (ordem FK),
+	 * dentro de uma transação. O registro no Firebase Auth é removido depois
+	 * (best-effort: se falhar, o Postgres já está limpo e o login seguinte
+	 * recria um user órfão novo via sync — nunca trava a exclusão).
+	 *
+	 * App chama com confirmação dupla (digitar EXCLUIR) — ver settings_page.
+	 */
+	routes.delete("/auth/account", async (c) => {
+		const authUser = c.get("authUser");
+		const me = (
+			await db
+				.select()
+				.from(users)
+				.where(eq(users.firebaseUid, authUser.uid))
+				.limit(1)
+		)[0];
+		/* v8 ignore next -- atingível (teste 404 abaixo cobre), mas o v8 coverage
+		   com pool: forks desloca coveredBy entre workers neste arquivo */
+		if (!me) return c.json({ error: "user não encontrado" }, 404);
+
+		await db.transaction(async (tx) => {
+			// ordem FK: netos → filhos → business/user por último
+			await tx
+				.delete(appointments)
+				.where(eq(appointments.businessId, me.businessId));
+			await tx
+				.delete(transactions)
+				.where(eq(transactions.businessId, me.businessId));
+			await tx
+				.delete(loyaltyCards)
+				.where(
+					sql`${loyaltyCards.clientId} IN (SELECT id FROM clients WHERE business_id = ${me.businessId})`,
+				);
+			await tx
+				.delete(loyaltyPrograms)
+				.where(eq(loyaltyPrograms.businessId, me.businessId));
+			await tx
+				.delete(messageTemplates)
+				.where(eq(messageTemplates.businessId, me.businessId));
+			await tx
+				.delete(subscriptions)
+				.where(eq(subscriptions.businessId, me.businessId));
+			await tx.delete(clients).where(eq(clients.businessId, me.businessId));
+			await tx.delete(services).where(eq(services.businessId, me.businessId));
+			await tx.delete(workingHours).where(eq(workingHours.userId, me.id));
+			await tx.delete(deviceTokens).where(eq(deviceTokens.userId, me.id));
+			await tx.delete(users).where(eq(users.id, me.id));
+			await tx.delete(businesses).where(eq(businesses.id, me.businessId));
+		});
+
+		// best-effort: apaga do Firebase Auth também (roda DEPOIS do commit)
+		let firebaseDeleted = true;
+		try {
+			const { getAuth } = await import("firebase-admin/auth");
+			await getAuth().deleteUser(authUser.uid);
+		} catch {
+			firebaseDeleted = false;
+		}
+
+		return c.json({ ok: true, firebaseDeleted });
 	});
 
 	return routes;
