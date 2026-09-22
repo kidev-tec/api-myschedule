@@ -56,6 +56,11 @@ export const messageTemplateKindEnum = pgEnum("message_template_kind", [
 	"custom",
 ]);
 
+export const waitlistStatusEnum = pgEnum("waitlist_status", [
+	"waiting",
+	"notified",
+	"served",
+]);
 export const businesses = pgTable("businesses", {
 	id: uuid("id").defaultRandom().primaryKey(),
 	name: varchar("name", { length: 120 }).notNull(),
@@ -93,6 +98,15 @@ export const businesses = pgTable("businesses", {
 	// O webhook (Fase B) usa asaas_customer_id pra achar o business.
 	asaasCustomerId: varchar("asaas_customer_id", { length: 64 }),
 	asaasSubscriptionId: varchar("asaas_subscription_id", { length: 64 }),
+	// Endereço (F1, migration 0013): onde o atendimento acontece — mostrado
+	// na página pública de booking. Campos separados pra futura integração
+	// com mapas/rota. Todos opcionais (business online/externo não tem).
+	addressStreet: varchar("address_street", { length: 200 }),
+	addressNumber: varchar("address_number", { length: 20 }),
+	addressDistrict: varchar("address_district", { length: 80 }),
+	addressCity: varchar("address_city", { length: 80 }),
+	addressState: varchar("address_state", { length: 2 }),
+	addressZip: varchar("address_zip", { length: 9 }),
 	createdAt: timestamp("created_at", { withTimezone: true })
 		.notNull()
 		.defaultNow(),
@@ -193,6 +207,8 @@ export const appointments = pgTable(
 		source: appointmentSourceEnum("source").notNull().default("app"),
 		canceledReason: text("canceled_reason"),
 		canceledAt: timestamp("canceled_at", { withTimezone: true }),
+		// F2 (migration 0014): push de lembrete já enviado (idempotência do job)
+		reminderSentAt: timestamp("reminder_sent_at", { withTimezone: true }),
 		// RF-08: id do evento espelhado no Google Calendar do business
 		gcalEventId: text("gcal_event_id"),
 		createdByUserId: uuid("created_by_user_id").references(() => users.id),
@@ -287,6 +303,59 @@ export const subscriptions = pgTable("subscriptions", {
  * logo do estabelecimento, lembrete de trial e tokens FCM por device.
  */
 export const businessesWithLogo = businesses;
+
+/**
+ * F5 (migration 0016): lista de espera — cliente deixa whatsapp e o dia
+ * desejado; quando o prestador cancela, a rota de cancelamento consulta
+ * quem espera por aquele dia e notifica (push/WhatsApp).
+ */
+export const waitlist = pgTable(
+	"waitlist",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		businessId: uuid("business_id")
+			.notNull()
+			.references(() => businesses.id, { onDelete: "cascade" }),
+		clientId: uuid("client_id")
+			.notNull()
+			.references(() => clients.id, { onDelete: "cascade" }),
+		desiredDate: date("desired_date").notNull(),
+		phoneE164: varchar("phone_e164", { length: 20 }).notNull(),
+		status: waitlistStatusEnum("status").notNull().default("waiting"),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+	},
+	(t) => [index("waitlist_date_idx").on(t.desiredDate, t.status)],
+);
+
+/**
+ * F3 (migration 0015): bloqueios de agenda — almoço, feriado, férias.
+ * Janela em que o profissional não aceita agendamentos mesmo dentro
+ * do expediente. Slots públicos consultam esta tabela via NOT EXISTS.
+ */
+export const timeOffs = pgTable(
+	"time_offs",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		userId: uuid("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		businessId: uuid("business_id")
+			.notNull()
+			.references(() => businesses.id, { onDelete: "cascade" }),
+		reason: varchar("reason", { length: 120 }),
+		startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+		endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+	},
+	(t) => [
+		index("time_offs_user_start_idx").on(t.userId, t.startsAt),
+		sql`CONSTRAINT time_offs_range_ck CHECK (ends_at > starts_at)`,
+	],
+);
 
 export const deviceTokens = pgTable("device_tokens", {
 	id: uuid("id").defaultRandom().primaryKey(),

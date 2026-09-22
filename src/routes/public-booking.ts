@@ -13,7 +13,7 @@
  * responde 402 no book (leitura/info continua livre).
  */
 
-import { and, eq, gte, isNull, lte, sql } from "drizzle-orm";
+import { and, eq, gt, gte, isNull, lt, lte, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { type Db, getDb } from "../db/connection.js";
 import {
@@ -21,6 +21,7 @@ import {
 	businesses,
 	clients,
 	services,
+	timeOffs as timeOffsTable,
 	users,
 	workingHours,
 } from "../db/schema.js";
@@ -86,6 +87,16 @@ function infoJson(
 			name: loaded.biz.name,
 			business_type: loaded.biz.businessType,
 			timezone: loaded.biz.timezone,
+			// endereço (F1): onde o atendimento acontece — cada campo pode ser
+			// null (business sem endereço cadastrado não exibe a linha)
+			address: {
+				street: loaded.biz.addressStreet,
+				number: loaded.biz.addressNumber,
+				district: loaded.biz.addressDistrict,
+				city: loaded.biz.addressCity,
+				state: loaded.biz.addressState,
+				zip: loaded.biz.addressZip,
+			},
 		},
 		professional: { name: loaded.pro.name },
 		services: svc,
@@ -298,6 +309,21 @@ export function publicBookingRoutes(databaseUrl: string) {
 		}
 		const dayEnd = new Date(dayStart.getTime() + 86_400_000);
 
+		// F3: bloqueios de agenda contam como ocupados pro cliente
+		const timeOffs = await db
+			.select({
+				startsAt: timeOffsTable.startsAt,
+				endsAt: timeOffsTable.endsAt,
+			})
+			.from(timeOffsTable)
+			.where(
+				and(
+					eq(timeOffsTable.userId, loaded.pro.id),
+					lt(timeOffsTable.startsAt, dayEnd),
+					gt(timeOffsTable.endsAt, dayStart),
+				),
+			);
+
 		const rows = await db
 			.select({ startsAt: appointments.startsAt, endsAt: appointments.endsAt })
 			.from(appointments)
@@ -311,10 +337,18 @@ export function publicBookingRoutes(databaseUrl: string) {
 				),
 			);
 		return c.json({
-			busy: rows.map((r) => ({
-				start: r.startsAt.toISOString(),
-				end: r.endsAt.toISOString(),
-			})),
+			busy: [
+				...rows.map((r) => ({
+					start: r.startsAt.toISOString(),
+					end: r.endsAt.toISOString(),
+				})),
+				// bloqueios vão com flag pra o cliente ver "indisponível"
+				...timeOffs.map((t) => ({
+					start: t.startsAt.toISOString(),
+					end: t.endsAt.toISOString(),
+					blocked: true,
+				})),
+			],
 		});
 	});
 
@@ -624,6 +658,14 @@ function renderForm(msg){
   app.innerHTML = \`
     <h1>\${INFO.business.name}</h1>
     <p class="mut">com \${INFO.professional.name} · agende teu horário</p>
+    \${INFO.business.address && INFO.business.address.street ? \`
+    <p class="mut" id="biz-address">📍 \${[
+      INFO.business.address.street,
+      INFO.business.address.number,
+      INFO.business.address.district,
+      INFO.business.address.city,
+      INFO.business.address.state
+    ].filter(Boolean).join(', ')}\${INFO.business.address.zip ? ' · CEP ' + INFO.business.address.zip : ''}</p>\` : ''}
     <div class="err" id="err"></div>
     <div class="card">
       <label>1. Escolhe o serviço</label>

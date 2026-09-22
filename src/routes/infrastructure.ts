@@ -8,8 +8,16 @@
 import { and, eq, gt, lte, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { type Db, getDb } from "../db/connection.js";
-import { businesses, deviceTokens, users } from "../db/schema.js";
+import {
+	appointments,
+	businesses,
+	clients,
+	deviceTokens,
+	services,
+	users,
+} from "../db/schema.js";
 import { sendEmail, trialEndingEmail } from "../services/email.js";
+import { sendToUser } from "../services/fcm.js";
 import type { AppEnv } from "../types.js";
 
 export function deviceRoutes(databaseUrl: string) {
@@ -145,6 +153,72 @@ export function internalRoutes(databaseUrl: string) {
 				.update(businesses)
 				.set({ trialReminderSentAt: now })
 				.where(eq(businesses.id, biz.id));
+			sent++;
+		}
+		return c.json({ sent, checked: rows.length });
+	});
+
+	/**
+	 * POST /internal/appointment-reminders — lembrete de compromisso (F2).
+	 *
+	 * Mesmo contrato do trial-reminders: header x-internal-key, chamado por
+	 * job externo (cron do servidor chama a cada 30 min). Varre appointments
+	 * confirmados/pending que começam entre agora e 24h, cujo lembrete ainda
+	 * não foi enviado, e manda push pro prestador via FCM.
+	 *
+	 * Idempotência: appointments.reminderSentAt (migration 0014) marca o
+	 * envio — repetir o job não duplica push.
+	 */
+	routes.post("/internal/appointment-reminders", async (c) => {
+		const expected = process.env.INTERNAL_KEY;
+		if (!expected) {
+			return c.json({ error: "INTERNAL_KEY não configurada" }, 503);
+		}
+		if (c.req.header("x-internal-key") !== expected) {
+			return c.json({ error: "não autorizado" }, 401);
+		}
+
+		const now = new Date();
+		const in24h = new Date(now.getTime() + 24 * 3_600_000);
+		// pendentes/confirmados que começam em <=24h e ainda sem lembrete
+		const rows = await db
+			.select({
+				id: appointments.id,
+				startsAt: appointments.startsAt,
+				serviceName: services.name,
+				clientName: clients.name,
+				userId: appointments.userId,
+			})
+			.from(appointments)
+			.innerJoin(services, eq(services.id, appointments.serviceId))
+			.innerJoin(clients, eq(clients.id, appointments.clientId))
+			.where(
+				and(
+					sql`${appointments.status} IN ('pending', 'confirmed')`,
+					gt(appointments.startsAt, now),
+					lte(appointments.startsAt, in24h),
+					sql`(${appointments.reminderSentAt} IS NULL)`,
+				),
+			);
+
+		let sent = 0;
+		for (const appt of rows) {
+			const when = appt.startsAt.toLocaleString("pt-BR", {
+				day: "2-digit",
+				month: "2-digit",
+				hour: "2-digit",
+				minute: "2-digit",
+			});
+			await sendToUser(
+				databaseUrl,
+				appt.userId,
+				"Lembrete de agendamento",
+				`${appt.clientName} — ${appt.serviceName} em ${when}`,
+			);
+			await db
+				.update(appointments)
+				.set({ reminderSentAt: now })
+				.where(eq(appointments.id, appt.id));
 			sent++;
 		}
 		return c.json({ sent, checked: rows.length });
