@@ -56,6 +56,11 @@ export const messageTemplateKindEnum = pgEnum("message_template_kind", [
 	"custom",
 ]);
 
+export const waitlistStatusEnum = pgEnum("waitlist_status", [
+	"waiting",
+	"notified",
+	"served",
+]);
 export const businesses = pgTable("businesses", {
 	id: uuid("id").defaultRandom().primaryKey(),
 	name: varchar("name", { length: 120 }).notNull(),
@@ -298,6 +303,31 @@ export const subscriptions = pgTable("subscriptions", {
  * logo do estabelecimento, lembrete de trial e tokens FCM por device.
  */
 export const businessesWithLogo = businesses;
+
+/**
+ * F5 (migration 0016): lista de espera — cliente deixa whatsapp e o dia
+ * desejado; quando o prestador cancela, a rota de cancelamento consulta
+ * quem espera por aquele dia e notifica (push/WhatsApp).
+ */
+export const waitlist = pgTable(
+	"waitlist",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		businessId: uuid("business_id")
+			.notNull()
+			.references(() => businesses.id, { onDelete: "cascade" }),
+		clientId: uuid("client_id")
+			.notNull()
+			.references(() => clients.id, { onDelete: "cascade" }),
+		desiredDate: date("desired_date").notNull(),
+		phoneE164: varchar("phone_e164", { length: 20 }).notNull(),
+		status: waitlistStatusEnum("status").notNull().default("waiting"),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+	},
+	(t) => [index("waitlist_date_idx").on(t.desiredDate, t.status)],
+);
 
 /**
  * F3 (migration 0015): bloqueios de agenda — almoço, feriado, férias.

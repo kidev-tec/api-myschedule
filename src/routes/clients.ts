@@ -11,7 +11,7 @@
  * - DELETE /clients/:id → soft-delete (deleted_at)
  */
 
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { type Db, getDb } from "../db/connection.js";
 import { appointments, clients, services, users } from "../db/schema.js";

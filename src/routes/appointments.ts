@@ -17,10 +17,12 @@ import {
 	services,
 	timeOffs,
 	users,
+	waitlist,
 } from "../db/schema.js";
 import { overlaps } from "../domain/booking.js";
 import { confirmationToken } from "../domain/confirmation-token.js";
 import { mirrorToCalendar } from "../domain/gcal-mirror.js";
+import { sendToUser } from "../services/fcm.js";
 import type { AppEnv } from "../types.js";
 
 async function requireUser(db: Db, firebaseUid: string) {
@@ -467,6 +469,30 @@ export function appointmentRoutes(databaseUrl: string) {
 				mirrorToCalendar(databaseUrl, updated.id).catch((e) =>
 					console.error("[gcal] espelho falhou:", e),
 				);
+				// F5: cancelou → conta pra lista de espera do dia quantos
+				// interessados existem (push best-effort pro prestador avisar)
+				if (patch.status === "canceled") {
+					const dayStr = updated.startsAt.toISOString().slice(0, 10);
+					const waiting = await db
+						.select({ n: sql<number>`count(*)::int` })
+						.from(waitlist)
+						.where(
+							and(
+								eq(waitlist.businessId, user.businessId),
+								sql`${waitlist.desiredDate}::date = ${dayStr}::date`,
+								eq(waitlist.status, "waiting"),
+							),
+						);
+					const n = waiting[0]?.n ?? 0;
+					if (n > 0) {
+						sendToUser(
+							databaseUrl,
+							user.id,
+							"Vaga abriu — lista de espera",
+							`${n} cliente${n > 1 ? "s" : ""} na espera pra esse dia. Abre a lista de espera pra avisar.`,
+						).catch(() => undefined);
+					}
+				}
 			}
 
 			return c.json({ appointment: updated });
