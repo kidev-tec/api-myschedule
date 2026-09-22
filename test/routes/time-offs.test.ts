@@ -301,3 +301,78 @@ describe("F3 — POST com body quebrado", () => {
 		expect(res.status).toBe(400);
 	});
 });
+
+// ==== F4 — histórico do cliente ====
+describe("GET /v1/clients/:id/history (F4)", () => {
+	it("retorna agregados + últimos appointments; 404 pra cliente de outro business", async () => {
+		const h = authed(uid());
+		await syncUser(h);
+		const bizId = (
+			(
+				await sql`
+        SELECT business_id FROM users WHERE firebase_uid = ${h.Authorization!.slice("Bearer ".length)}`
+			)[0] as { business_id: string }
+		).business_id;
+		const svc = await app.request("/v1/services", {
+			method: "POST",
+			headers: { "content-type": "application/json", ...h },
+			body: JSON.stringify({
+				name: "Degradê",
+				duration_min: 45,
+				price_cents: 6000,
+			}),
+		});
+		const svcBody = (await svc.json()) as { id: string };
+		const cli = await sql`
+      INSERT INTO clients (business_id, name, phone_e164) VALUES (${bizId}, 'Hist F4', '+5511933334444') RETURNING id`;
+		const cliId = (cli[0] as { id: string }).id;
+		const u = h.Authorization!.slice("Bearer ".length);
+		// 2 agendamentos passados (1 confirmado, 1 cancelado) e 1 futuro
+		await sql`
+      INSERT INTO appointments (business_id, client_id, service_id, user_id, starts_at, ends_at, status) VALUES
+        (${bizId}, ${cliId}, ${svcBody.id}, (SELECT id FROM users WHERE firebase_uid = ${u}),
+         now() - interval '30 days', now() - interval '29 days 30 minutes', 'confirmed'),
+        (${bizId}, ${cliId}, ${svcBody.id}, (SELECT id FROM users WHERE firebase_uid = ${u}),
+         now() - interval '10 days', now() - interval '9 days 30 minutes', 'canceled'),
+        (${bizId}, ${cliId}, ${svcBody.id}, (SELECT id FROM users WHERE firebase_uid = ${u}),
+         now() + interval '5 days', now() + interval '5 days 45 minutes', 'pending')`;
+
+		const hist = await app.request(`/v1/clients/${cliId}/history`, {
+			headers: h,
+		});
+		expect(hist.status).toBe(200);
+		const body = (await hist.json()) as {
+			total: number;
+			canceled: number;
+			noshow: number;
+			last_visit: string | null;
+			recent: {
+				id: string;
+				status: string;
+				service_name: string;
+				price_cents: number;
+			}[];
+		};
+		expect(body.total).toBe(3);
+		expect(body.canceled).toBe(1);
+		expect(body.noshow).toBe(0);
+		expect(body.last_visit).not.toBeNull();
+		expect(body.recent).toHaveLength(3);
+		expect(body.recent[0]!.service_name).toBe("Degradê"); // mais recente primeiro
+
+		// outro user não vê
+		const h2 = authed(uid());
+		await syncUser(h2);
+		const res2 = await app.request(`/v1/clients/${cliId}/history`, {
+			headers: h2,
+		});
+		expect(res2.status).toBe(404);
+
+		// id inválido → 400 (re-configura mock pro h original: h2 sobrescreveu)
+		authed(h.Authorization!.slice("Bearer ".length));
+		const res3 = await app.request("/v1/clients/nao-uuid/history", {
+			headers: h,
+		});
+		expect(res3.status).toBe(400);
+	});
+});
