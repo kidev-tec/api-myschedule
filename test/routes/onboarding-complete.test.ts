@@ -55,7 +55,7 @@ async function syncUser(headers: Record<string, string>) {
 }
 
 async function idsOf(headers: Record<string, string>) {
-	const meUid = headers.Authorization.slice("Bearer ".length);
+	const meUid = (headers.Authorization ?? "").slice("Bearer ".length);
 	const rows = await sql<{
 		biz_id: string;
 		user_id: string;
@@ -64,7 +64,9 @@ async function idsOf(headers: Record<string, string>) {
 		SELECT b.id as biz_id, u.id as user_id, b.name as biz_name
 		FROM businesses b JOIN users u ON u.business_id = b.id
 		WHERE u.firebase_uid = ${meUid} LIMIT 1`;
-	return rows[0];
+	const row = rows[0];
+	if (!row) throw new Error("business/user não criado pelo sync");
+	return row;
 }
 
 beforeAll(async () => {
