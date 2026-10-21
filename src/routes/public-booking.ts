@@ -698,9 +698,10 @@ function renderForm(msg){
   if(msg){ const e=document.getElementById('err'); e.textContent=msg; e.style.display='block'; }
   if(DAY) loadSlots(PICKED_KEEP);
 }
-// re-render de erro NÃO perde o horário escolhido
+// Re-render de erro NÃO perde o horário escolhido. Ao trocar serviço, a
+// lista recalcula conflitos/duração do NOVO serviço e só limpa se o slot cair.
 let PICKED_KEEP = false;
-window.pick = id => { SEL=id; window.PICKED=null; renderForm(); };
+window.pick = id => { SEL=id; PICKED_KEEP=!!window.PICKED; renderForm(); };
 
 async function loadSlots(keepPicked){
   // slots de 15min entre abrir/fechar do dia, já filtrando ocupados pela
