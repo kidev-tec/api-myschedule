@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:e2e": "node e2e/public-booking-b1.e2e.mjs",
     "lint": "biome check src/ test/",
     "lint:fix": "biome check --write src/ test/",
     "typecheck": "tsc -p tsconfig.test.json --noEmit",
@@ -36,6 +37,7 @@
     "drizzle-kit": "^0.31.10",
     "husky": "^9.1.7",
     "pg": "^8.23.0",
+    "playwright": "^1.52.0",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2",
     "vitest": "^5.0.0"

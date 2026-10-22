@@ -5,6 +5,12 @@
  * Decide se um horário já escolhido continua válido quando o cliente troca
  * de serviço: mesmo dia/horário de funcionamento, dentro da janela, livre
  * considerando a duração do NOVO serviço e no futuro.
+ *
+ * Paridade: o HTML da página (/p/:slug) embute uma cópia JS desta função
+ * (o browser não importa módulos). O teste de paridade em
+ * test/routes/public-booking.test.ts extrai a cópia inline do HTML servido e
+ * verifica comportamento IDÊNTICO ao desta função — mudar aqui sem mudar lá
+ * quebra o teste.
  */
 
 export interface WorkingHourRow {
