@@ -26,6 +26,7 @@ vi.mock("firebase-admin/app", () => ({
 }));
 
 import { createApp } from "../../src/app.js";
+import { slotStillValid } from "../../src/domain/public-booking-ui.js";
 import { resetRateLimit } from "../../src/routes/public-booking.js";
 
 const DATABASE_URL =
@@ -481,6 +482,231 @@ describe("RF-07: link público de agendamento", () => {
 
 	it("info de slug inexistente → 404", async () => {
 		expect((await app.request("/p/nao-existe/info")).status).toBe(404);
+	});
+
+	it("B1: paridade — slotStillValid inline no HTML ≡ função pura do domínio", async () => {
+		// 1. HTML servido contém a cópia inline
+		const res = await app.request("/p/slug-que-nao-existe");
+		const html = await res.text();
+		const m = html.match(/function slotStillValid\(picked[\s\S]*?\n}/);
+		expect(m).toBeTruthy();
+		// eslint-disable-next-line no-eval
+		const inline = new Function(`${m?.[0]}; return slotStillValid;`)();
+
+		// 2. mesma bateria de casos em ambas as implementações
+		const wh = [{ weekday: 3, start_time: "08:00", end_time: "18:00" }];
+		const now = new Date("2026-10-21T12:00:00");
+		const day = new Date("2026-10-22T00:00:00"); // quinta (weekday 4)
+		const whThu = [{ weekday: 4, start_time: "08:00", end_time: "18:00" }];
+		const busy10 = [
+			{ start: "2026-10-22T10:00:00", end: "2026-10-22T10:30:00" },
+		];
+		const cases: [string, Parameters<typeof slotStillValid>[0], boolean][] = [
+			[
+				"slot livre dentro da janela → válido",
+				{
+					picked: new Date("2026-10-22T09:00:00"),
+					day,
+					durationMin: 30,
+					workingHours: whThu,
+					busy: [],
+					now,
+				},
+				true,
+			],
+			[
+				"novo serviço 60min não cabe (09:30+60>18h? não — 09:30..10:30 choca com busy 10:00) → inválido",
+				{
+					picked: new Date("2026-10-22T09:30:00"),
+					day,
+					durationMin: 60,
+					workingHours: whThu,
+					busy: busy10,
+					now,
+				},
+				false,
+			],
+			[
+				"serviço 30min no mesmo 09:30 termina 10:00 (encosta, não sobrepõe) → válido",
+				{
+					picked: new Date("2026-10-22T09:30:00"),
+					day,
+					durationMin: 30,
+					workingHours: whThu,
+					busy: busy10,
+					now,
+				},
+				true,
+			],
+			[
+				"fecha 18h: 60min às 17:30 → inválido",
+				{
+					picked: new Date("2026-10-22T17:30:00"),
+					day,
+					durationMin: 60,
+					workingHours: whThu,
+					busy: [],
+					now,
+				},
+				false,
+			],
+			[
+				"dia sem working_hours (quarta fechada) → inválido",
+				{
+					picked: new Date("2026-10-21T09:00:00"),
+					day: new Date("2026-10-21T00:00:00"),
+					durationMin: 30,
+					workingHours: wh, // só weekday 3
+					busy: [],
+					now,
+				},
+				false,
+			],
+			[
+				"slot no passado → inválido",
+				{
+					picked: new Date("2026-10-21T09:00:00"),
+					day: new Date("2026-10-21T00:00:00"),
+					durationMin: 30,
+					workingHours: [
+						{ weekday: 3, start_time: "08:00", end_time: "18:00" },
+					],
+					busy: [],
+					now,
+				},
+				false,
+			],
+		];
+		for (const [name, input, expected] of cases) {
+			// função pura (TS, testada direto)
+			expect(slotStillValid(input), `pura: ${name}`).toBe(expected);
+			// cópia inline extraída do HTML servido
+			expect(
+				inline(
+					input.picked,
+					input.day,
+					input.durationMin,
+					input.workingHours,
+					input.busy,
+					input.now,
+				),
+				`inline: ${name}`,
+			).toBe(expected);
+		}
+	});
+
+	it("B1: integração — duração do novo serviço decide preservar/rejeitar slot no servidor", async () => {
+		const uid = `pub-b1-${Date.now()}`;
+		verifyMock.mockImplementation(async (token: string) => {
+			if (token !== uid) throw new Error("invalid");
+			return { uid, email: `${uid}@t.com`, name: "Pro B1" };
+		});
+		const h = authed(uid);
+		const syncRes = await app.request("/v1/auth/sync", {
+			method: "POST",
+			headers: { "content-type": "application/json", ...h },
+			body: JSON.stringify({ name: "Pro B1" }),
+		});
+		const slug =
+			((await syncRes.json()) as { business?: { slug?: string } }).business
+				?.slug ?? "";
+		expect(slug).toBeTruthy();
+
+		// dois serviços: 30min e 60min
+		const svcA = (await (
+			await app.request("/v1/services", {
+				method: "POST",
+				headers: { "content-type": "application/json", ...h },
+				body: JSON.stringify({
+					name: "Curto",
+					duration_min: 30,
+					price_cents: 0,
+				}),
+			})
+		).json()) as { id: string };
+		const svcB = (await (
+			await app.request("/v1/services", {
+				method: "POST",
+				headers: { "content-type": "application/json", ...h },
+				body: JSON.stringify({
+					name: "Longo",
+					duration_min: 60,
+					price_cents: 0,
+				}),
+			})
+		).json()) as { id: string };
+
+		const tomorrow = new Date(Date.now() + 86_400_000);
+		const ds = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
+		// agenda ocupa 10:00–10:30
+		const blockerStart = new Date(tomorrow);
+		blockerStart.setHours(10, 0, 0, 0);
+		expect(
+			(
+				await app.request(`/p/${slug}/book`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						name: "Bloqueio",
+						phone: "14999992000",
+						service_id: svcA.id,
+						starts_at: blockerStart.toISOString(),
+					}),
+				})
+			).status,
+		).toBe(201);
+
+		// 09:30 é livre p/ serviço 30min (termina 10:00, encosta sem sobrepor)
+		const at0930 = new Date(tomorrow);
+		at0930.setHours(9, 30, 0, 0);
+		expect(
+			(
+				await app.request(`/p/${slug}/book`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						name: "Curto OK",
+						phone: "14999992001",
+						service_id: svcA.id,
+						starts_at: at0930.toISOString(),
+					}),
+				})
+			).status,
+		).toBe(201);
+
+		// MESMO 09:30 com serviço 60min → 09:30..10:30 sobrepõe 10:00–10:30 → 409
+		// (o cliente que trocar p/ Longo não pode manter o horário escolhido)
+		expect(
+			(
+				await app.request(`/p/${slug}/book`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						name: "Longo Conflita",
+						phone: "14999992002",
+						service_id: svcB.id,
+						starts_at: at0930.toISOString(),
+					}),
+				})
+			).status,
+		).toBe(409);
+
+		// busy expõe o intervalo real que fundamenta a decisão do front
+		const busy = (await (
+			await app.request(`/p/${slug}/busy?date=${ds}`)
+		).json()) as { busy: { start: string; end: string }[] };
+		// 09:30–10:00 (Curto OK) + 10:00–10:30 (Bloqueio)
+		expect(busy.busy.length).toBeGreaterThanOrEqual(2);
+		const asMin = (iso: string) => {
+			const d = new Date(iso);
+			return d.getHours() * 60 + d.getMinutes();
+		};
+		expect(
+			busy.busy.some((b) => asMin(b.start) === 570 && asMin(b.end) === 600),
+		).toBe(true); // 09:30–10:00
+		expect(
+			busy.busy.some((b) => asMin(b.start) === 600 && asMin(b.end) === 630),
+		).toBe(true); // 10:00–10:30
 	});
 
 	it("trial com trial_ends_at null → book passa (legado)", async () => {
