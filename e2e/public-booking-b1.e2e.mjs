@@ -88,6 +88,21 @@ async function main() {
 			"B1 falhou: ausência de mensagem para horário incompatível",
 		);
 		console.log("PASS B1 E2E: preserva compatível; limpa incompatível com aviso.");
+
+		// Roteiro final: finalizar agendamento válido (slot compatível preservado).
+		await page.getByText("Serviço curto · 30min").click(); // volta pro serviço compatível
+		await page.waitForTimeout(150);
+		await page.locator("#nm").fill("Cliente Roteiro");
+		await page.locator("#ph").fill("14998887766");
+		await page.getByText("09:30", { exact: true }).click();
+		await page.locator("#go").click();
+		await page.getByText("Horário agendado!").waitFor({ timeout: 10_000 });
+		const [{ count }] = await db`
+			select count(*)::int as count from appointments
+			where business_id in (select id from businesses where slug = ${slug})
+				and source = 'public_link'`;
+		assert(count === 1, `B1 falhou: booking final não persistiu (count=${count})`);
+		console.log("PASS B1 E2E: agendamento válido finalizado e persistido (source=public_link).");
 	} finally {
 		await browser?.close();
 		await db`delete from appointments where business_id in (select id from businesses where slug = ${slug})`;
