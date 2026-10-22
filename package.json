@@ -32,14 +32,17 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.12",
+    "@grpc/grpc-js": "^1.14.6",
     "@types/node": "^26.5.0",
     "@vitest/coverage-v8": "^5.0.0",
+    "brace-expansion": "^5.0.12",
     "drizzle-kit": "^0.31.10",
     "husky": "^9.1.7",
     "pg": "^8.23.0",
     "playwright": "^1.64.1",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2",
+    "vite": "^8.3.5",
     "vitest": "^5.0.0"
   }
 }
