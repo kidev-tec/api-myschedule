@@ -384,9 +384,9 @@ describe("RF-07: link público de agendamento", () => {
 			busy: { start: string; end: string }[];
 		};
 		expect(busy).toHaveLength(1);
-		expect(new Date(busy[0]?.start).getHours()).toBe(9);
-		expect(new Date(busy[0]?.end).getHours()).toBe(9);
-		expect(new Date(busy[0]?.end).getMinutes()).toBe(30);
+		expect(new Date(busy[0]!.start).getHours()).toBe(9);
+		expect(new Date(busy[0]!.end).getHours()).toBe(9);
+		expect(new Date(busy[0]!.end).getMinutes()).toBe(30);
 
 		// validação: date inválida E date ausente (?? "" cai no NaN)
 		expect((await app.request(`/p/${slug}/busy?date=xxx`)).status).toBe(400);
