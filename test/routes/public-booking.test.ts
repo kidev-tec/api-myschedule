@@ -26,6 +26,7 @@ vi.mock("firebase-admin/app", () => ({
 }));
 
 import { createApp } from "../../src/app.js";
+import { slotStillValid } from "../../src/domain/public-booking-ui.js";
 import { resetRateLimit } from "../../src/routes/public-booking.js";
 
 const DATABASE_URL =
@@ -42,7 +43,7 @@ function authed(uid: string) {
 	return { Authorization: `Bearer ${uid}` };
 }
 
-async function syncUser(uid: string, name: string) {
+async function _syncUser(uid: string, name: string) {
 	verifyMock.mockImplementation(async (token: string) => {
 		if (token !== uid) throw new Error("invalid");
 		return { uid: token, email: `${uid}@t.com`, name };
@@ -168,7 +169,7 @@ describe("RF-07: link público de agendamento", () => {
 			services: { id: string }[];
 			working_hours: unknown[];
 		};
-		expect(infoJson.business!.name).toBe("Pro Público");
+		expect(infoJson.business?.name).toBe("Pro Público");
 		expect(infoJson.services.some((s) => s.id === svc.id)).toBe(true);
 		expect(infoJson.working_hours.length).toBeGreaterThan(0);
 
@@ -199,9 +200,9 @@ describe("RF-07: link público de agendamento", () => {
 			select a.source, c.phone_e164, c.name as client_name
 			from appointments a join clients c on c.id = a.client_id
 			where a.id = ${booking.id}`;
-		expect(rows[0]!.source).toBe("public_link");
-		expect(rows[0]!.phone_e164).toBe("14998887766");
-		expect(rows[0]!.client_name).toBe("Cliente Web");
+		expect(rows[0]?.source).toBe("public_link");
+		expect(rows[0]?.phone_e164).toBe("14998887766");
+		expect(rows[0]?.client_name).toBe("Cliente Web");
 
 		// ---- mesmo slot de novo → 409
 		const conflict = await app.request(`/p/${slug}/book`, {
@@ -230,7 +231,7 @@ describe("RF-07: link público de agendamento", () => {
 			}),
 		});
 		expect(book2.status).toBe(201);
-		const count = (await sql`
+		const _count = (await sql`
 			select count(*)::int as n from clients
 			where business_id = (select id from businesses where slug = ${slug})
 			and phone_e164 in ('14998887766','14999990000')`) as unknown as {
@@ -251,7 +252,7 @@ describe("RF-07: link público de agendamento", () => {
 			where business_id = (select id from businesses where slug = ${slug})
 			and name = 'Cliente Web'`) as unknown as { phone_e164: string }[];
 		expect(ph.length).toBe(1);
-		expect(ph[0]!.phone_e164).toBe("14998887766");
+		expect(ph[0]?.phone_e164).toBe("14998887766");
 	});
 
 	it("validações: campos ruins, serviço estrangeiro, data passada", async () => {
@@ -383,9 +384,9 @@ describe("RF-07: link público de agendamento", () => {
 			busy: { start: string; end: string }[];
 		};
 		expect(busy).toHaveLength(1);
-		expect(new Date(busy[0]!.start).getHours()).toBe(9);
-		expect(new Date(busy[0]!.end).getHours()).toBe(9);
-		expect(new Date(busy[0]!.end).getMinutes()).toBe(30);
+		expect(new Date(busy[0]?.start).getHours()).toBe(9);
+		expect(new Date(busy[0]?.end).getHours()).toBe(9);
+		expect(new Date(busy[0]?.end).getMinutes()).toBe(30);
 
 		// validação: date inválida E date ausente (?? "" cai no NaN)
 		expect((await app.request(`/p/${slug}/busy?date=xxx`)).status).toBe(400);
@@ -507,7 +508,7 @@ describe("RF-07: link público de agendamento", () => {
 		const svc = (await svcRes.json()) as { id: string };
 
 		const bizRows = await sql`select id from businesses where slug = ${slug}`;
-		await sql`update businesses set subscription_status = 'trial', trial_ends_at = null where id = ${bizRows[0]!.id}`;
+		await sql`update businesses set subscription_status = 'trial', trial_ends_at = null where id = ${bizRows[0]?.id}`;
 
 		const res = await app.request(`/p/${slug}/book`, {
 			method: "POST",
@@ -553,7 +554,7 @@ describe("RF-07: link público de agendamento", () => {
 
 		// vence o trial direto no banco
 		const bizRows = await sql`select id from businesses where slug = ${slug}`;
-		await sql`update businesses set trial_ends_at = now() - interval '1 day' where id = ${bizRows[0]!.id}`;
+		await sql`update businesses set trial_ends_at = now() - interval '1 day' where id = ${bizRows[0]?.id}`;
 
 		// info (leitura) continua aberta
 		expect((await app.request(`/p/${slug}/info`)).status).toBe(200);
@@ -571,36 +572,36 @@ describe("RF-07: link público de agendamento", () => {
 		expect(res.status).toBe(402);
 
 		// reativa com status ACTIVE: agora canWrite passa por "active" → book 201
-		await sql`update businesses set subscription_status = 'active', trial_ends_at = now() + interval '30 days' where id = ${bizRows[0]!.id}`;
+		await sql`update businesses set subscription_status = 'active', trial_ends_at = now() + interval '30 days' where id = ${bizRows[0]?.id}`;
 		const svcRows =
-			await sql`select id from services where business_id = ${bizRows[0]!.id} limit 1`;
+			await sql`select id from services where business_id = ${bizRows[0]?.id} limit 1`;
 		const okRes = await app.request(`/p/${slug}/book`, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({
 				name: "Pós-reativação",
 				phone: "14999994444",
-				service_id: svcRows[0]!.id,
+				service_id: svcRows[0]?.id,
 				starts_at: new Date(Date.now() + 172_800_000).toISOString(),
 			}),
 		});
 		expect(okRes.status).toBe(201);
 
 		// status desconhecido (canceled) → return false → 402
-		await sql`update businesses set subscription_status = 'canceled' where id = ${bizRows[0]!.id}`;
+		await sql`update businesses set subscription_status = 'canceled' where id = ${bizRows[0]?.id}`;
 		const cxRes = await app.request(`/p/${slug}/book`, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({
 				name: "Pós-cancel",
 				phone: "14999993333",
-				service_id: svcRows[0]!.id,
+				service_id: svcRows[0]?.id,
 				starts_at: new Date(Date.now() + 259_200_000).toISOString(),
 			}),
 		});
 		expect(cxRes.status).toBe(402);
 		// restaura pra cleanup
-		await sql`update businesses set subscription_status = 'trial' where id = ${bizRows[0]!.id}`;
+		await sql`update businesses set subscription_status = 'trial' where id = ${bizRows[0]?.id}`;
 	});
 
 	it("rate limit: 11 bookings em 1min do mesmo IP → 429", async () => {
@@ -647,5 +648,89 @@ describe("RF-07: link público de agendamento", () => {
 			expect(res.status).toBe(201);
 		}
 		expect(saw429).toBe(true);
+	});
+});
+
+describe("B1: paridade TS/HTML e preservação do slot ao trocar serviço", () => {
+	it("HTML embute cópia de slotStillValid (paridade de existência)", async () => {
+		const res = await app.request("/p/paridade-b1");
+		const html = await res.text();
+		expect(html).toContain("function slotStillValid(");
+	});
+
+	it("paridade: cópia inline e função de domínio concordam nos mesmos vetores", async () => {
+		const res = await app.request("/p/paridade-b1");
+		const html = await res.text();
+		// extrai o corpo da função inline (da assinatura até "return !busy")
+		const start = html.indexOf("function slotStillValid(");
+		expect(start).toBeGreaterThan(-1);
+		const snippet = html.slice(start, html.indexOf("</script>", start));
+		// avalia num escouro com Date nativo; stub de window (o snippet segue
+		// até </script> e referencia window em código posterior)
+		const inline = new Function("window", `${snippet}; return slotStillValid;`)(
+			{ PICKED: null },
+		) as (...args: unknown[]) => boolean;
+		const NOW = new Date("2026-10-23T08:30:00");
+		const vectors = [
+			{
+				picked: new Date("2026-10-23T09:00:00"),
+				day: new Date("2026-10-23T00:00:00"),
+				durationMin: 45,
+				workingHours: [{ weekday: 5, start_time: "08:00", end_time: "18:00" }],
+				busy: [{ start: "2026-10-23T10:00:00", end: "2026-10-23T10:30:00" }],
+				now: NOW,
+			},
+			{
+				picked: new Date("2026-10-23T09:30:00"),
+				day: new Date("2026-10-23T00:00:00"),
+				durationMin: 60,
+				workingHours: [{ weekday: 5, start_time: "08:00", end_time: "18:00" }],
+				busy: [{ start: "2026-10-23T10:00:00", end: "2026-10-23T10:30:00" }],
+				now: NOW,
+			},
+			{
+				picked: new Date("2026-10-23T17:30:00"),
+				day: new Date("2026-10-23T00:00:00"),
+				durationMin: 60,
+				workingHours: [{ weekday: 5, start_time: "08:00", end_time: "18:00" }],
+				busy: [],
+				now: NOW,
+			},
+			{
+				picked: new Date("2026-10-23T09:00:00"),
+				day: new Date("2026-10-23T00:00:00"),
+				durationMin: 45,
+				workingHours: [],
+				busy: [],
+				now: NOW,
+			},
+			{
+				picked: new Date("2026-10-23T08:00:00"),
+				day: new Date("2026-10-23T00:00:00"),
+				durationMin: 45,
+				workingHours: [{ weekday: 5, start_time: "08:00", end_time: "18:00" }],
+				busy: [],
+				now: NOW,
+			},
+		];
+		for (const v of vectors) {
+			// inline tem assinatura posicional; domínio recebe objeto — mesmos vetores
+			expect(
+				inline(v.picked, v.day, v.durationMin, v.workingHours, v.busy, v.now),
+			).toBe(slotStillValid(v));
+		}
+	});
+
+	it("HTML: pick() troca serviço e loadSlots avalia validade (preserva window.PICKED)", async () => {
+		const res = await app.request("/p/paridade-b1");
+		const html = await res.text();
+		// pick não pode mais limpar PICKED incondicionalmente; loadSlots decide
+		expect(html).toContain("window.pick = id => { SEL=id;");
+		expect(html).not.toContain("SEL=id; window.PICKED=null");
+		// loadSlots usa slotStillValid (cópia inline) e mostra mensagem RF-02
+		expect(html).toContain("slotStillValid(");
+		expect(html).toContain(
+			"o horário escolhido não está disponível para este serviço — escolha outro",
+		);
 	});
 });

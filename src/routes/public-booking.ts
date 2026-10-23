@@ -646,6 +646,21 @@ function toGcalDate(d){
   return d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0') + 'T' + String(d.getHours()).padStart(2,'0') + String(d.getMinutes()).padStart(2,'0') + '00';
 }
 
+// B1: cópia JS de slotStillValid (src/domain/public-booking-ui.ts) — o HTML é
+// standalone, sem build; MANTER EM PARIDADE com o módulo de domínio (SPEC RF-05).
+function slotStillValid(picked, day, durationMin, workingHours, busy, now){
+  if(picked.getTime() <= now.getTime()) return false;
+  const h = workingHours.find(x=>x.weekday===day.getDay());
+  if(!h) return false;
+  const sp = h.start_time.split(':').map(Number), ep = h.end_time.split(':').map(Number);
+  const opening = new Date(day); opening.setHours(sp[0]||0, sp[1]||0, 0, 0);
+  const closing = new Date(day); closing.setHours(ep[0]||0, ep[1]||0, 0, 0);
+  if(picked.getTime() < opening.getTime()) return false;
+  const end = picked.getTime() + durationMin*60000;
+  if(end > closing.getTime()) return false;
+  return !busy.some(b => picked.getTime() < new Date(b.end).getTime() && end > new Date(b.start).getTime());
+}
+
 // snapshot do que o usuário já digitou (sobrevive a re-render de erro)
 let NAME_DRAFT = '', PHONE_DRAFT = '';
 
@@ -696,11 +711,15 @@ function renderForm(msg){
     dw.appendChild(el);
   });
   if(msg){ const e=document.getElementById('err'); e.textContent=msg; e.style.display='block'; }
-  if(DAY) loadSlots(PICKED_KEEP);
+  // B1: re-render (troca de serviço/erro) tenta manter o slot escolhido —
+  // loadSlots reavalia a validade e limpa se inválido.
+  if(DAY) loadSlots(PICKED_KEEP || !!window.PICKED);
 }
 // re-render de erro NÃO perde o horário escolhido
 let PICKED_KEEP = false;
-window.pick = id => { SEL=id; window.PICKED=null; renderForm(); };
+// B1: trocar serviço NÃO limpa o horário aqui — loadSlots() reavalia a
+// validade do slot com a duração do novo serviço e limpa só se inválido.
+window.pick = id => { SEL=id; renderForm(); };
 
 async function loadSlots(keepPicked){
   // slots de 15min entre abrir/fechar do dia, já filtrando ocupados pela
@@ -742,10 +761,16 @@ async function loadSlots(keepPicked){
     };
     slots.appendChild(el);
   });
-  // slot escolhido virou indisponível (trocou serviço / foi ocupado)
+  // B1: reavalia o slot escolhido com a duração do serviço atual (cópia
+  // inline de slotStillValid). Inválido → limpa e exige nova escolha.
   if(window.PICKED){
-    const still = out.some(d=>d.getTime()===window.PICKED.getTime()) && !conflicts(window.PICKED);
-    if(!still) window.PICKED = null;
+    const still = slotStillValid(window.PICKED, DAY, svc?svc.duration_min:30, INFO.working_hours, busy, new Date());
+    if(!still){
+      window.PICKED = null;
+      PICKED_KEEP = false;
+      const e=document.getElementById('err');
+      if(e){ e.textContent='o horário escolhido não está disponível para este serviço — escolha outro'; e.style.display='block'; }
+    }
   }
   if(out.length>0 && out.every(d=>conflicts(d))){
     slots.innerHTML='<span class="mut">sem horários livres pra este serviço neste dia — escolhe outro dia ou serviço</span>';
