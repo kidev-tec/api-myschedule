@@ -64,12 +64,12 @@ afterEach(() => {
  *  dos profissionais "Pro …" e uids com "pub-"), evitando sujar os cleanup
  *  dos outros arquivos de teste (FK users→businesses impede delete cru). */
 async function cleanupMine() {
-	await sql`DELETE FROM appointments WHERE business_id IN (SELECT id FROM businesses WHERE name IN ('Pro Público','Pro Val','Pro Pay','Pro RL'))`;
-	await sql`DELETE FROM clients WHERE business_id IN (SELECT id FROM businesses WHERE name IN ('Pro Público','Pro Val','Pro Pay','Pro RL'))`;
-	await sql`DELETE FROM services WHERE business_id IN (SELECT id FROM businesses WHERE name IN ('Pro Público','Pro Val','Pro Pay','Pro RL'))`;
+	await sql`DELETE FROM appointments WHERE business_id IN (SELECT id FROM businesses WHERE name IN ('Pro Público','Pro Val','Pro Pay','Pro RL','Pro RL 2')) OR user_id IN (SELECT id FROM users WHERE email LIKE 'pub-uid-%' OR email LIKE 'pub-val-%' OR email LIKE 'pub-pay-%' OR email LIKE 'pub-rl-%')`;
+	await sql`DELETE FROM clients WHERE business_id IN (SELECT id FROM businesses WHERE name IN ('Pro Público','Pro Val','Pro Pay','Pro RL','Pro RL 2'))`;
+	await sql`DELETE FROM services WHERE business_id IN (SELECT id FROM businesses WHERE name IN ('Pro Público','Pro Val','Pro Pay','Pro RL','Pro RL 2'))`;
 	await sql`DELETE FROM working_hours WHERE user_id IN (SELECT id FROM users WHERE email LIKE 'pub-uid-%' OR email LIKE 'pub-val-%' OR email LIKE 'pub-pay-%' OR email LIKE 'pub-rl-%')`;
 	await sql`DELETE FROM users WHERE email LIKE 'pub-uid-%' OR email LIKE 'pub-val-%' OR email LIKE 'pub-pay-%' OR email LIKE 'pub-rl-%'`;
-	await sql`DELETE FROM businesses WHERE name IN ('Pro Público','Pro Val','Pro Pay','Pro RL')`;
+	await sql`DELETE FROM businesses WHERE name IN ('Pro Público','Pro Val','Pro Pay','Pro RL','Pro RL 2')`;
 }
 
 afterAll(async () => {
@@ -648,6 +648,97 @@ describe("RF-07: link público de agendamento", () => {
 			expect(res.status).toBe(201);
 		}
 		expect(saw429).toBe(true);
+	});
+});
+
+describe("B1 Task 3: backend continua autoridade (409 com duração do novo serviço)", () => {
+	it("09:30+30 apenas encosta na ocupação 10:00 → 201; 09:30+60 sobrepõe → 409", async () => {
+		const uid = `pub-rl-${Date.now()}`;
+		verifyMock.mockImplementation(async (token: string) => {
+			if (token !== uid) throw new Error("invalid");
+			return { uid, email: `${uid}@t.com`, name: "Pro RL 2" };
+		});
+		const h = authed(uid);
+		const syncRes = await app.request("/v1/auth/sync", {
+			method: "POST",
+			headers: { "content-type": "application/json", ...h },
+			body: JSON.stringify({ name: "Pro RL 2" }),
+		});
+		const slug = ((await syncRes.json()) as { business?: { slug?: string } })
+			.business?.slug as string;
+		expect(slug).toBeTruthy();
+
+		// dois serviços: curto 30min e longo 60min
+		const mk = async (name: string, duration_min: number) => {
+			const r = await app.request("/v1/services", {
+				method: "POST",
+				headers: { "content-type": "application/json", ...h },
+				body: JSON.stringify({ name, duration_min, price_cents: 0 }),
+			});
+			return (await r.json()) as { id: string };
+		};
+		const short = await mk("Curto B1", 30);
+		const long = await mk("Longo B1", 60);
+
+		// horário de amanhã 08:00–18:00
+		const day = new Date(Date.now() + 86_400_000);
+		await app.request("/v1/working-hours", {
+			method: "PUT",
+			headers: { "content-type": "application/json", ...h },
+			body: JSON.stringify({
+				slots: [
+					{
+						weekday: day.getDay(),
+						start_minute: 8 * 60,
+						end_minute: 18 * 60,
+					},
+				],
+			}),
+		});
+
+		// ocupação: 10:00–10:30 (outro cliente, serviço curto)
+		const occStart = new Date(day);
+		occStart.setHours(10, 0, 0, 0);
+		const occRes = await app.request(`/p/${slug}/book`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				name: "Ocupa 10h",
+				phone: "14999101010",
+				service_id: short.id,
+				starts_at: occStart.toISOString(),
+			}),
+		});
+		expect(occRes.status).toBe(201);
+
+		// 09:30 + 30min termina exatamente 10:00 (encosta) → aceito
+		const touching = new Date(day);
+		touching.setHours(9, 30, 0, 0);
+		const okRes = await app.request(`/p/${slug}/book`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				name: "Encosta Ok",
+				phone: "14999309300",
+				service_id: short.id,
+				starts_at: touching.toISOString(),
+			}),
+		});
+		expect(okRes.status).toBe(201);
+
+		// 09:30 + 60min atravessa a ocupação → 409 (autoridade do backend,
+		// endsAt recalculado com svc.durationMin)
+		const overlapRes = await app.request(`/p/${slug}/book`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				name: "Sobrepõe 409",
+				phone: "14999600900",
+				service_id: long.id,
+				starts_at: touching.toISOString(),
+			}),
+		});
+		expect(overlapRes.status).toBe(409);
 	});
 });
 
