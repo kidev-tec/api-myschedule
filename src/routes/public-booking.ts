@@ -164,7 +164,12 @@ export function publicBookingRoutes(databaseUrl: string) {
 			phone?: unknown;
 			service_id?: unknown;
 			starts_at?: unknown;
+			duration_min?: unknown;
 		} | null;
+		// Público deriva estritamente do serviço: não aceita override de duração.
+		if (body?.duration_min !== undefined) {
+			return c.json({ error: "duration_min não é permitido no agendamento público" }, 400);
+		}
 		const name =
 			typeof body?.name === "string" ? body.name.trim().slice(0, 120) : "";
 		const phone =

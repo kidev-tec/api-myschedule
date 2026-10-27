@@ -298,6 +298,8 @@ describe("RF-07: link público de agendamento", () => {
 		const noStart = { ...ok };
 		delete (noStart as { starts_at?: string }).starts_at;
 		expect((await post(noStart)).status).toBe(400);
+		// SPEC v1.0.0: página pública nunca altera duração do serviço.
+		expect((await post({ ...ok, duration_min: 15 })).status).toBe(400);
 		expect(
 			(
 				await post({

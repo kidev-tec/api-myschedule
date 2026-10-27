@@ -18,8 +18,15 @@ import {
 	timeOffs,
 	users,
 	waitlist,
+	workingHours,
 } from "../db/schema.js";
 import { overlaps } from "../domain/booking.js";
+import {
+	isValidDurationMin,
+	isWithinWorkingHours,
+	resolveEffectiveInterval,
+	type WorkingHour,
+} from "../domain/duration.js";
 import { confirmationToken } from "../domain/confirmation-token.js";
 import { mirrorToCalendar } from "../domain/gcal-mirror.js";
 import { sendToUser } from "../services/fcm.js";
@@ -46,6 +53,8 @@ type CreateBody = {
 	userId?: unknown;
 	startsAt?: unknown;
 	endsAt?: unknown;
+	// duração flexível (SPEC v1.0.0): override por agendamento em minutos.
+	duration_min?: unknown;
 	// RF-A: "block" cria bloqueio de horário (compromisso externo do prestador).
 	// canceledReason é reaproveitado como MOTIVO do bloqueio (campo já existia).
 	source?: unknown;
@@ -135,12 +144,90 @@ export function appointmentRoutes(databaseUrl: string) {
 			);
 		}
 		const start = parseDate(startsAt);
-		const end = parseDate(endsAt);
-		if (!start || !end) {
+		if (!start) {
 			return c.json(
 				{ error: "startsAt/endsAt inválidos (ISO 8601 esperado)" },
 				400,
 			);
+		}
+
+		// duração flexível (SPEC v1.0.0): duration_min preferred; endsAt legado.
+		const hasDuration = body.duration_min !== undefined;
+		const hasEndsAt = body.endsAt !== undefined;
+		let end: Date | null;
+		if (hasDuration) {
+			if (!isValidDurationMin(body.duration_min)) {
+				return c.json(
+					{
+						error:
+							"duration_min inválida (15..480 minutos, múltiplo de 15)",
+					},
+					400,
+				);
+			}
+			const resolved = resolveEffectiveInterval(
+				start,
+				body.duration_min,
+				hasEndsAt ? (parseDate(body.endsAt) ?? undefined) : undefined,
+			);
+			if (!resolved) {
+				return c.json(
+					{
+						error:
+							"duration_min e endsAt divergem (endsAt deve ser startsAt + duration_min)",
+					},
+					400,
+				);
+			}
+			end = resolved.end;
+		} else if (hasEndsAt) {
+			end = parseDate(body.endsAt);
+			if (!end) {
+				return c.json(
+					{ error: "startsAt/endsAt inválidos (ISO 8601 esperado)" },
+					400,
+				);
+			}
+		} else {
+			return c.json(
+				{ error: "informe duration_min (ou endsAt legado)" },
+				400,
+			);
+		}
+		if (start >= end) {
+			return c.json({ error: "startsAt deve ser antes de endsAt" }, 400);
+		}
+
+		// Compatibilidade: legado startsAt+endsAt mantém contrato anterior.
+		// Novo duration_min exige jornada integral (SPEC v1.0.0).
+		if (hasDuration) {
+			const [bizRow] = await db
+				.select({ timezone: businesses.timezone })
+				.from(businesses)
+				.where(eq(businesses.id, user.businessId))
+				.limit(1);
+			const hours = await db
+				.select({
+					weekday: workingHours.weekday,
+					startTime: workingHours.startTime,
+					endTime: workingHours.endTime,
+				})
+				.from(workingHours)
+				.where(eq(workingHours.userId, professionalId));
+			if (
+				!bizRow ||
+				!isWithinWorkingHours(
+					start,
+					end,
+					hours as WorkingHour[],
+					bizRow.timezone,
+				)
+			) {
+				return c.json(
+					{ error: "horário fora da jornada de atendimento deste profissional" },
+					400,
+				);
+			}
 		}
 
 		// Defesa 1: validação de domínio (mensagem amigável).
@@ -296,6 +383,7 @@ export function appointmentRoutes(databaseUrl: string) {
 			status?: unknown;
 			startsAt?: unknown;
 			endsAt?: unknown;
+			duration_min?: unknown;
 			canceledReason?: unknown;
 		} | null;
 		if (!body) return c.json({ error: "body inválido" }, 400);
@@ -328,7 +416,9 @@ export function appointmentRoutes(databaseUrl: string) {
 			// Mudar startsAt na MESMA request reabre o horário — nesse caso a
 			// mudança de status é legítima (remarcação + confirmação).
 			const rechedules =
-				body.startsAt !== undefined || body.endsAt !== undefined;
+				body.startsAt !== undefined ||
+				body.endsAt !== undefined ||
+				body.duration_min !== undefined;
 			const newStart = rechedules
 				? (parseDate(body.startsAt) ?? current.startsAt)
 				: current.startsAt;
@@ -349,22 +439,86 @@ export function appointmentRoutes(databaseUrl: string) {
 			}
 		}
 
-		if (body.startsAt !== undefined || body.endsAt !== undefined) {
+		if (
+			body.startsAt !== undefined ||
+			body.endsAt !== undefined ||
+			body.duration_min !== undefined
+		) {
 			const start = parseDate(body.startsAt) ?? current.startsAt;
 			// B5 (UX): mudou só o início → preserva a DURAÇÃO original
 			// (leigo não calcula fim; "mover" o agendamento inteiro).
 			let end: Date;
-			if (body.endsAt !== undefined) {
+			if (body.duration_min !== undefined) {
+				if (!isValidDurationMin(body.duration_min)) {
+					return c.json(
+						{
+							error:
+								"duration_min inválida (15..480 minutos, múltiplo de 15)",
+						},
+						400,
+					);
+				}
+				const resolved = resolveEffectiveInterval(
+					start,
+					body.duration_min,
+					body.endsAt !== undefined
+						? (parseDate(body.endsAt) ?? undefined)
+						: undefined,
+				);
+				if (!resolved) {
+					return c.json(
+						{
+							error:
+								"duration_min e endsAt divergem (endsAt deve ser startsAt + duration_min)",
+						},
+						400,
+					);
+				}
+				end = resolved.end;
+			} else if (body.endsAt !== undefined) {
 				/* v8 ignore next -- parseDate inválida cai em 400 antes (startsAt>=end) */
 				end = parseDate(body.endsAt) ?? current.endsAt;
 			} else {
 				// B5 (UX): mudou só o início → preserva a DURAÇÃO original
 				// (leigo não calcula fim; "mover" o agendamento inteiro).
-				const durMs = current.endsAt.getTime() - current.startsAt.getTime();
+				const durMs =
+					current.endsAt.getTime() - current.startsAt.getTime();
 				end = new Date(start.getTime() + durMs);
 			}
 			if (start >= end)
 				return c.json({ error: "startsAt deve ser antes de endsAt" }, 400);
+
+			// Compatibilidade: PATCH legado não ganha nova restrição.
+			// duration_min ativa validação integral de jornada (SPEC v1.0.0).
+			if (body.duration_min !== undefined) {
+				const [bizRow] = await db
+					.select({ timezone: businesses.timezone })
+					.from(businesses)
+					.where(eq(businesses.id, user.businessId))
+					.limit(1);
+				const hours = await db
+					.select({
+						weekday: workingHours.weekday,
+						startTime: workingHours.startTime,
+						endTime: workingHours.endTime,
+					})
+					.from(workingHours)
+					.where(eq(workingHours.userId, current.userId));
+				if (
+					!bizRow ||
+					!isWithinWorkingHours(
+						start,
+						end,
+						hours as WorkingHour[],
+						bizRow.timezone,
+					)
+				) {
+					return c.json(
+						{ error: "horário fora da jornada de atendimento deste profissional" },
+						400,
+					);
+				}
+			}
 
 			// valida overlap contra os OUTROS agendamentos ATIVOS do mesmo profissional
 			const others = await db
