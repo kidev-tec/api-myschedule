@@ -188,10 +188,12 @@ export function internalRoutes(databaseUrl: string) {
 				serviceName: services.name,
 				clientName: clients.name,
 				userId: appointments.userId,
-			})
-			.from(appointments)
-			.innerJoin(services, eq(services.id, appointments.serviceId))
-			.innerJoin(clients, eq(clients.id, appointments.clientId))
+				businessTimezone: businesses.timezone,
+				})
+				.from(appointments)
+				.innerJoin(services, eq(services.id, appointments.serviceId))
+				.innerJoin(clients, eq(clients.id, appointments.clientId))
+				.innerJoin(businesses, eq(businesses.id, appointments.businessId))
 			.where(
 				and(
 					sql`${appointments.status} IN ('pending', 'confirmed')`,
@@ -208,6 +210,8 @@ export function internalRoutes(databaseUrl: string) {
 				month: "2-digit",
 				hour: "2-digit",
 				minute: "2-digit",
+				// Sempre no fuso do negócio — nunca no fuso do servidor (UTC em prod).
+				timeZone: appt.businessTimezone || "America/Sao_Paulo",
 			});
 			await sendToUser(
 				databaseUrl,

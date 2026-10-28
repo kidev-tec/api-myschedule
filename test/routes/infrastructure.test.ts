@@ -493,7 +493,67 @@ describe("POST /v1/internal/appointment-reminders (F2)", () => {
 		} finally {
 			delete process.env.INTERNAL_KEY;
 		}
-	});
+		});
+
+		it("lembrete renderiza hora no fuso do negócio (não do servidor)", async () => {
+		process.env.INTERNAL_KEY = "test-secret";
+		process.env.TZ = "UTC"; // servidor simulado em UTC
+		try {
+			const h = authed(uid());
+			await syncUser(h);
+			const { id: bizId } = await me(h);
+			const svc = await app.request("/v1/services", {
+				method: "POST",
+				headers: { "content-type": "application/json", ...h },
+				body: JSON.stringify({
+					name: "Corte TZ",
+					duration_min: 30,
+					price_cents: 5000,
+				}),
+			});
+			const svcBody = (await svc.json()) as { id: string };
+			const cli = await sql`
+				INSERT INTO clients (business_id, name, phone_e164) VALUES (${bizId}, 'Cli TZ', '+551****8888') RETURNING id`;
+			const cliId = (cli[0] as { id: string }).id;
+			const uidValue = h.Authorization.slice("Bearer ".length);
+			// 12:00 UTC = 09:00 America/Sao_Paulo; começa em ~5h (dentro da janela)
+			const start = new Date(Date.now() + 5 * 3600 * 1000);
+			start.setUTCHours(12, 0, 0, 0);
+			const appt = await sql`
+				INSERT INTO appointments (business_id, client_id, service_id, user_id, starts_at, ends_at, status)
+				VALUES (${bizId}, ${cliId}, ${svcBody.id}, (SELECT id FROM users WHERE firebase_uid = ${uidValue}),
+					${start.toISOString()}, ${new Date(start.getTime() + 1800_000).toISOString()}, 'confirmed')
+				RETURNING id`;
+			const apptId = (appt[0] as { id: string }).id;
+			await app.request("/v1/devices", {
+				method: "POST",
+				headers: { "content-type": "application/json", ...h },
+				body: JSON.stringify({
+					fcmToken: `fcm-tz-${apptId}`,
+					platform: "android",
+				}),
+			});
+			sendMock.mockClear();
+			const ok = await app.request("/v1/internal/appointment-reminders", {
+				method: "POST",
+				headers: { "x-internal-key": "test-secret" },
+			});
+			expect(ok.status).toBe(200);
+			expect(sendMock).toHaveBeenCalled();
+			const call = sendMock.mock.calls.find(
+				(c) => (c[0] as { token: string }).token === `fcm-tz-${apptId}`,
+			);
+			expect(call).toBeDefined();
+			const body = (call![0] as { notification: { body: string } }).notification
+				.body;
+			// 12:00 UTC renderizado como 09:00 (fuso do negócio), não 12:00 (UTC)
+			expect(body).toContain("09:00");
+			expect(body).not.toContain("12:00");
+		} finally {
+			delete process.env.INTERNAL_KEY;
+			process.env.TZ = "America/Sao_Paulo";
+		}
+		});
 
 	it("envia push pro prestador p/ appointment em <=24h e marca reminder_sent_at (idempotente)", async () => {
 		process.env.INTERNAL_KEY = "test-secret";
