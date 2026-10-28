@@ -245,53 +245,6 @@ export function appointmentRoutes(databaseUrl: string) {
 
 	// RF-B01: link de confirmação do cliente (usado pelo app pra montar
 	// a mensagem do WhatsApp). Requer auth — é o prestador pedindo.
-	routes.get("/:id", async (c) => {
-		const authUser = c.get("authUser");
-		const user = await requireUser(db, authUser.uid);
-		if (!user) return c.json({ error: "usuário não sincronizado" }, 403);
-
-		const id = c.req.param("id");
-		const [row] = await db
-			.select({
-				id: appointments.id,
-				startsAt: appointments.startsAt,
-				endsAt: appointments.endsAt,
-				status: appointments.status,
-				businessTimezone: businesses.timezone,
-			})
-			.from(appointments)
-			.innerJoin(businesses, eq(businesses.id, appointments.businessId))
-			.where(
-				and(
-					eq(appointments.id, id),
-					eq(appointments.businessId, user.businessId),
-				),
-			)
-			.limit(1);
-
-		if (!row) return c.json({ error: "agendamento não encontrado" }, 404);
-
-		// Horário já formatado no fuso do negócio — o app usa direto na
-		// mensagem de remarcação, sem depender do fuso do dispositivo.
-		const startsAtLocal = row.startsAt.toLocaleString("pt-BR", {
-			day: "2-digit",
-			month: "2-digit",
-			hour: "2-digit",
-			minute: "2-digit",
-			timeZone: row.businessTimezone,
-		});
-
-		return c.json({
-			appointment: {
-				id: row.id,
-				starts_at: row.startsAt,
-				ends_at: row.endsAt,
-				status: row.status,
-				starts_at_local: startsAtLocal,
-			},
-		});
-	});
-
 	routes.get("/:id/confirm-link", async (c) => {
 		const authUser = c.get("authUser");
 		const user = await requireUser(db, authUser.uid);

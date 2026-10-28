@@ -493,10 +493,11 @@ describe("POST /v1/internal/appointment-reminders (F2)", () => {
 		} finally {
 			delete process.env.INTERNAL_KEY;
 		}
-		});
+	});
 
-		it("lembrete renderiza hora no fuso do negócio (não do servidor)", async () => {
+	it("lembrete renderiza hora no fuso do negócio (não do servidor)", async () => {
 		process.env.INTERNAL_KEY = "test-secret";
+		const tzOriginal = process.env.TZ;
 		process.env.TZ = "UTC"; // servidor simulado em UTC
 		try {
 			const h = authed(uid());
@@ -516,9 +517,15 @@ describe("POST /v1/internal/appointment-reminders (F2)", () => {
 				INSERT INTO clients (business_id, name, phone_e164) VALUES (${bizId}, 'Cli TZ', '+551****8888') RETURNING id`;
 			const cliId = (cli[0] as { id: string }).id;
 			const uidValue = h.Authorization.slice("Bearer ".length);
-			// 12:00 UTC = 09:00 America/Sao_Paulo; começa em ~5h (dentro da janela)
-			const start = new Date(Date.now() + 5 * 3600 * 1000);
-			start.setUTCHours(12, 0, 0, 0);
+			// Daqui a 2h (dentro da janela de 24h, a qualquer hora do dia).
+			const start = new Date(Date.now() + 2 * 3600 * 1000);
+			start.setUTCSeconds(0, 0);
+			const hhmm = (timeZone: string) =>
+				start.toLocaleTimeString("pt-BR", {
+					hour: "2-digit",
+					minute: "2-digit",
+					timeZone,
+				});
 			const appt = await sql`
 				INSERT INTO appointments (business_id, client_id, service_id, user_id, starts_at, ends_at, status)
 				VALUES (${bizId}, ${cliId}, ${svcBody.id}, (SELECT id FROM users WHERE firebase_uid = ${uidValue}),
@@ -544,16 +551,19 @@ describe("POST /v1/internal/appointment-reminders (F2)", () => {
 				(c) => (c[0] as { token: string }).token === `fcm-tz-${apptId}`,
 			);
 			expect(call).toBeDefined();
-			const body = (call![0] as { notification: { body: string } }).notification
-				.body;
-			// 12:00 UTC renderizado como 09:00 (fuso do negócio), não 12:00 (UTC)
-			expect(body).toContain("09:00");
-			expect(body).not.toContain("12:00");
+			const payload = call?.[0] as
+				| { notification: { body: string } }
+				| undefined;
+			const body = payload?.notification.body ?? "";
+			// renderizado no fuso do negócio (UTC-3), não no do servidor (UTC)
+			expect(body).toContain(hhmm("America/Sao_Paulo"));
+			expect(body).not.toContain(hhmm("UTC"));
 		} finally {
 			delete process.env.INTERNAL_KEY;
-			process.env.TZ = "America/Sao_Paulo";
+			if (tzOriginal === undefined) delete process.env.TZ;
+			else process.env.TZ = tzOriginal;
 		}
-		});
+	});
 
 	it("envia push pro prestador p/ appointment em <=24h e marca reminder_sent_at (idempotente)", async () => {
 		process.env.INTERNAL_KEY = "test-secret";
