@@ -193,3 +193,20 @@ describe("horário passado não muda de estado (produto 21/09)", () => {
 		expect(res.status).toBe(200);
 	});
 });
+
+describe("GET /appointments — apelido do cliente", () => {
+	it("devolve client_nickname (como o cliente prefere ser chamado)", async () => {
+		const h = authed(uid());
+		const base = await setupBase(h);
+		await sql`UPDATE clients SET nickname = 'Dudu' WHERE id = ${base.clientId}`;
+		const id = await createAppt(h, base, iso(2 * 3600_000));
+		const list = await app.request(
+			`/v1/appointments?from=${iso(0)}&to=${iso(24 * 3600_000)}`,
+			{ headers: h },
+		);
+		const { appointments } = (await list.json()) as {
+			appointments: { id: string; client_nickname: string | null }[];
+		};
+		expect(appointments.find((a) => a.id === id)?.client_nickname).toBe("Dudu");
+	});
+});

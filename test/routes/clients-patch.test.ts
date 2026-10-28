@@ -338,3 +338,101 @@ describe("POST /v1/clients — birthday e notes", () => {
 		expect(created.birthday).toBeNull();
 	});
 });
+
+describe("cadastro completo do cliente (CPF, apelido, origem, LGPD, endereço)", () => {
+	const completo = {
+		name: "Eduardo",
+		phone_e164: "+5514999990091",
+		cpf: "529.982.247-25",
+		nickname: "Dudu",
+		referral_source: "indicacao",
+		marketing_consent: true,
+		address: {
+			zip: "17012-000",
+			street: "Rua Batista de Carvalho",
+			number: "100",
+			complement: "sala 2",
+			district: "Centro",
+			city: "Bauru",
+			state: "SP",
+		},
+	};
+	const esperado = {
+		cpf: "52998224725",
+		nickname: "Dudu",
+		referral_source: "indicacao",
+		marketing_consent: true,
+		address: {
+			zip: "17012000",
+			street: "Rua Batista de Carvalho",
+			number: "100",
+			complement: "sala 2",
+			district: "Centro",
+			city: "Bauru",
+			state: "SP",
+		},
+	};
+
+	it("POST grava tudo e GET devolve normalizado", async () => {
+		const h = authed(uid());
+		await createdUser(h);
+		const res = await app.request("/v1/clients", {
+			method: "POST",
+			headers: { "content-type": "application/json", ...h },
+			body: JSON.stringify(completo),
+		});
+		expect(res.status).toBe(201);
+		const { id } = (await res.json()) as { id: string };
+		const got = await app.request(`/v1/clients/${id}`, { headers: h });
+		expect(await got.json()).toMatchObject(esperado);
+	});
+
+	it("PATCH atualiza o cadastro completo", async () => {
+		const h = authed(uid());
+		await createdUser(h);
+		const c = await createClient(h, "Eduardo", "+5514999990092");
+		const res = await app.request(`/v1/clients/${c.id}`, {
+			method: "PATCH",
+			headers: { "content-type": "application/json", ...h },
+			body: JSON.stringify({ ...completo, phone_e164: "+5514999990092" }),
+		});
+		expect(res.status).toBe(200);
+		expect(await res.json()).toMatchObject(esperado);
+	});
+
+	it.each(["POST", "PATCH"])("%s com CPF inválido → 400", async (method) => {
+		const h = authed(uid());
+		await createdUser(h);
+		const c = await createClient(h, "Zé", "+5514999990093");
+		const res = await app.request(
+			method === "POST" ? "/v1/clients" : `/v1/clients/${c.id}`,
+			{
+				method,
+				headers: { "content-type": "application/json", ...h },
+				body: JSON.stringify({
+					name: "Zé",
+					phone_e164: "+5514999990094",
+					cpf: "11111111111",
+				}),
+			},
+		);
+		expect(res.status).toBe(400);
+		expect(((await res.json()) as { error: string }).error).toBe(
+			"CPF inválido",
+		);
+	});
+
+	it("sem os campos novos: nulos, consentimento false, endereço vazio", async () => {
+		const h = authed(uid());
+		await createdUser(h);
+		const c = await createClient(h, "Bia", "+5514999990095");
+		const got = await app.request(`/v1/clients/${c.id}`, { headers: h });
+		expect(await got.json()).toMatchObject({
+			cpf: null,
+			nickname: null,
+			referral_source: null,
+			marketing_consent: false,
+			address: { zip: null, street: null, city: null, state: null },
+		});
+	});
+});
