@@ -79,6 +79,14 @@ O app Flutter autentica no Firebase; a API valida o ID token em cada request, fa
 
 Roda como processo Node (tsx) na Hostinger, Postgres no Supabase. Após cada deploy, conferir se as migrações foram aplicadas.
 
+## Release do app (updater)
+
+`GET /v1/version` lê `public/version.json` a cada request e o app baixa `apk_url` de `public/apks/` (montada no container, sem rebuild).
+
+1. Tag `vX.Y.Z` no app: o `release.yml` publica `agenva-X.Y.Z.apk` (+ `.sha256`) na release e abre um PR aqui (base `staging`) atualizando o `version.json`.
+2. Na VPS, na pasta da API: `./scripts/fetch-apk.sh X.Y.Z`. Baixa o asset, confere o sha256 e publica em `public/apks/`. Nunca sobrescreve um APK existente.
+3. Só então mergear o PR do `version.json`. Antes do APK estar no ar, o app baixaria um 404.
+
 ## Backup & Restore (operacional)
 
 - **Automático**: cron `30 4 * * *` roda `~/run/backup-minha-agenda.sh` → dump `pg_dump -Fc` do Supabase (prod) e do Postgres dev (docker) → `~/backups/minha-agenda/` + cópia `rclone` → OneDrive (`backups/minha-agenda/`). Retenção local de 30 dias. Log: `~/run/logs/backup.log`. O script valida que o dump do dia é restaurável (`pg_restore --list`).
