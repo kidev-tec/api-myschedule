@@ -275,12 +275,19 @@ export function publicBookingRoutes(databaseUrl: string) {
 			month: "2-digit",
 			hour: "2-digit",
 			minute: "2-digit",
+			// fuso do NEGÓCIO — o servidor roda em UTC em produção
+			timeZone: loaded.biz.timezone,
 		});
 		sendToUser(
 			databaseUrl,
 			loaded.pro.id,
 			"Novo agendamento",
 			`${client.name} — ${svc.name} em ${when}`,
+			{
+				type: "new_booking",
+				appointment_id: created.id,
+				starts_at: created.startsAt.toISOString(),
+			},
 		).catch(/* v8 ignore next -- best-effort FCM */ () => {});
 
 		return c.json(
@@ -613,6 +620,22 @@ button:disabled{opacity:.5}
 <div id="app"><h1>Carregando…</h1></div>
 <script>
 const SLUG = "${s}";
+// B1: cópia JS de slotStillValid (src/domain/public-booking-ui.ts) — o HTML
+// não importa módulos. Teste de paridade em test/routes/public-booking.test.ts
+// extrai isto do HTML servido e compara com a função pura: drift quebra CI.
+function slotStillValid(picked, day, durationMin, workingHours, busy, now){
+  if(picked.getTime() <= now.getTime()) return false;
+  const wd = day.getDay();
+  const h = workingHours.find(x=>x.weekday===wd);
+  if(!h) return false;
+  const parts = h.start_time.split(':').map(Number); const sh = parts[0]||0, sm = parts[1]||0;
+  const eh = Number(h.end_time.split(':')[0])||0;
+  const openMin = sh*60+sm, closeMin = eh*60;
+  const startMin = picked.getHours()*60+picked.getMinutes();
+  if(startMin < openMin || startMin+durationMin > closeMin) return false;
+  const startMs = picked.getTime(), endMs = startMs + durationMin*60000;
+  return !busy.some(b => startMs < new Date(b.end).getTime() && endMs > new Date(b.start).getTime());
+}
 document.documentElement.style.setProperty('--p', "${pal.p}");
 document.documentElement.style.setProperty('--selBg', "${pal.selBg}");
 const app = document.getElementById('app');
@@ -698,9 +721,10 @@ function renderForm(msg){
   if(msg){ const e=document.getElementById('err'); e.textContent=msg; e.style.display='block'; }
   if(DAY) loadSlots(PICKED_KEEP);
 }
-// re-render de erro NÃO perde o horário escolhido
+// Re-render de erro NÃO perde o horário escolhido. Ao trocar serviço, a
+// lista recalcula conflitos/duração do NOVO serviço e só limpa se o slot cair.
 let PICKED_KEEP = false;
-window.pick = id => { SEL=id; window.PICKED=null; renderForm(); };
+window.pick = id => { SEL=id; PICKED_KEEP=!!window.PICKED; renderForm(); };
 
 async function loadSlots(keepPicked){
   // slots de 15min entre abrir/fechar do dia, já filtrando ocupados pela
@@ -744,8 +768,14 @@ async function loadSlots(keepPicked){
   });
   // slot escolhido virou indisponível (trocou serviço / foi ocupado)
   if(window.PICKED){
-    const still = out.some(d=>d.getTime()===window.PICKED.getTime()) && !conflicts(window.PICKED);
-    if(!still) window.PICKED = null;
+    const svc2 = INFO.services.find(x=>x.id===SEL);
+    const still = slotStillValid(window.PICKED, DAY, svc2?svc2.duration_min:30, INFO.working_hours, busy, new Date());
+    if(!still){
+      window.PICKED = null;
+      const err=document.getElementById('err');
+      err.textContent='o horário escolhido não está disponível para este serviço — escolha outro';
+      err.style.display='block';
+    }
   }
   if(out.length>0 && out.every(d=>conflicts(d))){
     slots.innerHTML='<span class="mut">sem horários livres pra este serviço neste dia — escolhe outro dia ou serviço</span>';

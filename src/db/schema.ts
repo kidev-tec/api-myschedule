@@ -107,6 +107,8 @@ export const businesses = pgTable("businesses", {
 	addressCity: varchar("address_city", { length: 80 }),
 	addressState: varchar("address_state", { length: 2 }),
 	addressZip: varchar("address_zip", { length: 9 }),
+	// Cor do tema (identidade visual) "#RRGGBB"; null = cor do segmento (0019)
+	themeColor: varchar("theme_color", { length: 7 }),
 	createdAt: timestamp("created_at", { withTimezone: true })
 		.notNull()
 		.defaultNow(),
@@ -162,6 +164,18 @@ export const clients = pgTable(
 		email: varchar("email", { length: 200 }),
 		birthday: date("birthday"),
 		notes: text("notes"),
+		// Cadastro completo (migration 0018) — tudo opcional
+		cpf: varchar("cpf", { length: 11 }),
+		nickname: varchar("nickname", { length: 60 }),
+		referralSource: varchar("referral_source", { length: 20 }),
+		marketingConsent: boolean("marketing_consent").notNull().default(false),
+		addressZip: varchar("address_zip", { length: 8 }),
+		addressStreet: varchar("address_street", { length: 200 }),
+		addressNumber: varchar("address_number", { length: 20 }),
+		addressComplement: varchar("address_complement", { length: 80 }),
+		addressDistrict: varchar("address_district", { length: 80 }),
+		addressCity: varchar("address_city", { length: 80 }),
+		addressState: varchar("address_state", { length: 2 }),
 		// Soft-delete (LGPD: purge real via endpoint dedicado)
 		deletedAt: timestamp("deleted_at", { withTimezone: true }),
 		createdAt: timestamp("created_at", { withTimezone: true })
@@ -205,6 +219,8 @@ export const appointments = pgTable(
 		endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
 		status: appointmentStatusEnum("status").notNull().default("pending"),
 		source: appointmentSourceEnum("source").notNull().default("app"),
+		// Observações do prestador (privadas). Migration 0017.
+		notes: text("notes"),
 		canceledReason: text("canceled_reason"),
 		canceledAt: timestamp("canceled_at", { withTimezone: true }),
 		// F2 (migration 0014): push de lembrete já enviado (idempotência do job)
