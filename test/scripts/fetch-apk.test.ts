@@ -122,6 +122,23 @@ describe("scripts/fetch-apk.sh", () => {
 		expect(versionJson()).toBe(OLD_MANIFEST);
 	});
 
+	it("manifesto formatado (JSON com espaços) → publica igual ao compacto", () => {
+		const pretty = JSON.stringify(JSON.parse(manifest()), null, 2);
+		publishRelease({ manifest: pretty });
+		const r = run(VERSION);
+		expect(r.status).toBe(0);
+		expect(readFileSync(path.join(apks, NAME), "utf8")).toBe("apk-v999");
+		expect(versionJson()).toBe(pretty);
+	});
+
+	it("versão só parecida (ponto não é curinga) → recusa", () => {
+		publishRelease({ manifest: manifest("9x9x9", NAME) });
+		const r = run(VERSION);
+		expect(r.status).not.toBe(0);
+		expect(r.stderr).toContain("não aponta");
+		expect(versionJson()).toBe(OLD_MANIFEST);
+	});
+
 	it("APK já publicado e igual à release → mantém e só troca o version.json", () => {
 		publishRelease();
 		mkdirSync(apks, { recursive: true });

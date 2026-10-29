@@ -38,9 +38,10 @@ fetch "$SUMS"
 fetch "$MANIFEST"
 check "$TMP" "$MANIFEST"
 
-# o manifesto tem que ser desta versão e apontar para este APK
-grep -q "\"version\":\"$VERSION\"" "$TMP/$MANIFEST" \
-  && grep -q "\"apk_url\":\"/apks/$NAME\"" "$TMP/$MANIFEST" \
+# o manifesto tem que ser desta versão e apontar para este APK; aceita JSON
+# compacto ou formatado (espaços entre chave e valor)
+field() { grep -Eq "\"$1\"[[:space:]]*:[[:space:]]*\"${2//./\\.}\"" "$TMP/$MANIFEST"; }
+field version "$VERSION" && field apk_url "/apks/$NAME" \
   || { echo "manifesto $MANIFEST não aponta para $VERSION / $NAME" >&2; exit 1; }
 
 if [ -e "$DEST" ]; then
