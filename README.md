@@ -83,9 +83,10 @@ Roda como processo Node (tsx) na Hostinger, Postgres no Supabase. Após cada dep
 
 `GET /v1/version` lê `public/version.json` a cada request e o app baixa `apk_url` de `public/apks/` (montada no container, sem rebuild).
 
-1. Tag `vX.Y.Z` no app: o `release.yml` publica `agenva-X.Y.Z.apk` (+ `.sha256`) na release e abre um PR aqui (base `staging`) atualizando o `version.json`.
-2. Na VPS, na pasta da API: `./scripts/fetch-apk.sh X.Y.Z`. Baixa o asset, confere o sha256 e publica em `public/apks/`. Nunca sobrescreve um APK existente.
-3. Só então mergear o PR do `version.json`. Antes do APK estar no ar, o app baixaria um 404.
+1. Tag `vX.Y.Z` no app: o `release.yml` publica na release `agenva-X.Y.Z.apk`, o manifesto `agenva-X.Y.Z.version.json` (versão, `apk_url`, changelog) e `agenva-X.Y.Z.sha256` dos dois.
+2. Na VPS, na pasta da API: `./scripts/fetch-apk.sh X.Y.Z`. Confere o checksum, publica o APK em `public/apks/` e **só depois** troca o `public/version.json`: o banner nunca aparece antes do APK estar no ar. Sem PR, sem pull, sem rebuild.
+
+O `public/version.json` fica fora do git (só existe na VPS). Sem ele, `/v1/version` responde `0.0.0` e o app não mostra banner. Nunca sobrescreve um APK existente; rodar o script com uma versão anterior é o rollback.
 
 ## Backup & Restore (operacional)
 

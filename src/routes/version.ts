@@ -4,9 +4,10 @@
  * GET /version → { version, apk_url, changelog }
  * O app compara com a versão local e mostra banner "atualizar".
  *
- * O APK release fica em public/apks/minha-agenda.apk (substituído a cada
- * release pelo CI ou manualmente). versionFile é version.json no mesmo
- * diretório — editar sem rebuild da API.
+ * APKs ficam em public/apks/agenva-<versão>.apk e o manifesto em
+ * public/version.json, os dois escritos na VPS pelo scripts/fetch-apk.sh a
+ * partir da release do app (fora do git, sem rebuild). Sem manifesto, a
+ * resposta é a padrão (0.0.0): o app não mostra banner.
  */
 
 import { existsSync, readFileSync } from "node:fs";
