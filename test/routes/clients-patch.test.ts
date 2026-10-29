@@ -286,3 +286,55 @@ describe("PATCH /v1/clients/:id", () => {
 		expect(res.status).toBe(200);
 	});
 });
+
+describe("POST /v1/clients — birthday e notes", () => {
+	async function post(h: Record<string, string>, body: object) {
+		return app.request("/v1/clients", {
+			method: "POST",
+			headers: { "content-type": "application/json", ...h },
+			body: JSON.stringify(body),
+		});
+	}
+
+	it("201 — grava aniversário e informações (aparadas) já na criação", async () => {
+		const h = authed(uid());
+		await createdUser(h);
+		const res = await post(h, {
+			name: "Ana",
+			phone_e164: "+5514999990081",
+			birthday: "1990-05-20",
+			notes: "  prefere atendimento de manhã  ",
+		});
+		expect(res.status).toBe(201);
+		const created = (await res.json()) as {
+			id: string;
+			birthday: string;
+			notes: string;
+		};
+		expect(created.birthday).toBe("1990-05-20");
+		expect(created.notes).toBe("prefere atendimento de manhã");
+
+		const got = await app.request(`/v1/clients/${created.id}`, { headers: h });
+		const body = (await got.json()) as { notes: string; birthday: string };
+		expect(body.notes).toBe("prefere atendimento de manhã");
+		expect(body.birthday).toBe("1990-05-20");
+	});
+
+	it("201 — notes/birthday vazios viram null", async () => {
+		const h = authed(uid());
+		await createdUser(h);
+		const res = await post(h, {
+			name: "Bia",
+			phone_e164: "+5514999990082",
+			birthday: " ",
+			notes: "   ",
+		});
+		expect(res.status).toBe(201);
+		const created = (await res.json()) as {
+			notes: string | null;
+			birthday: string | null;
+		};
+		expect(created.notes).toBeNull();
+		expect(created.birthday).toBeNull();
+	});
+});
