@@ -10,6 +10,12 @@ const sendMock = vi.hoisted(() =>
 		(args: {
 			token: string;
 			notification: { title: string; body: string };
+			data?: Record<string, string>;
+			android?: {
+				priority?: string;
+				notification?: { channelId?: string; defaultSound?: boolean };
+			};
+			apns?: { payload?: { aps?: { sound?: string } } };
 		}) => Promise<string>
 	>(async () => "ok"),
 );
@@ -152,6 +158,23 @@ describe("fcm.sendToUser", () => {
 		await sendToUser(DATABASE_URL, userId, "Novo agendamento", "corpo");
 		expect(sendMock).toHaveBeenCalledTimes(2);
 		expect(sendMock.mock.calls[0]?.[0]?.token).toBe(`tok-${uid}-1`);
+	});
+
+	it("som/vibração seguem o celular: canal agendamentos, prioridade alta, dados", async () => {
+		await sql`
+			INSERT INTO device_tokens (user_id, fcm_token, platform)
+			VALUES (${userId}, ${`tok-${uid}-ch`}, 'android')
+		`;
+		await sendToUser(DATABASE_URL, userId, "Novo agendamento", "corpo", {
+			type: "new_booking",
+			appointment_id: "a1",
+		});
+		const msg = sendMock.mock.calls.at(-1)?.[0];
+		expect(msg?.android?.priority).toBe("high");
+		expect(msg?.android?.notification?.channelId).toBe("agendamentos");
+		expect(msg?.android?.notification?.defaultSound).toBe(true);
+		expect(msg?.apns?.payload?.aps?.sound).toBe("default");
+		expect(msg?.data).toEqual({ type: "new_booking", appointment_id: "a1" });
 	});
 
 	it("token morto (registration-token-not-registered) é removido", async () => {

@@ -22,6 +22,7 @@ import {
 import { overlaps } from "../domain/booking.js";
 import { confirmationToken } from "../domain/confirmation-token.js";
 import { mirrorToCalendar } from "../domain/gcal-mirror.js";
+import { startsOnOrBeforeToday } from "../domain/schedule-day.js";
 import { sendToUser } from "../services/fcm.js";
 import type { AppEnv } from "../types.js";
 
@@ -50,7 +51,28 @@ type CreateBody = {
 	// canceledReason é reaproveitado como MOTIVO do bloqueio (campo já existia).
 	source?: unknown;
 	canceledReason?: unknown;
+	notes?: unknown;
 };
+
+const NOTES_MAX = 1000;
+
+/**
+ * Observações do prestador: texto opcional, aparado; vazio vira null.
+ * `undefined` = campo não enviado. Retorna `{ error }` se inválido.
+ */
+function parseNotes(
+	v: unknown,
+): { value: string | null | undefined } | { error: string } {
+	if (v === undefined) return { value: undefined };
+	if (v !== null && typeof v !== "string") {
+		return { error: "Observações devem ser texto" };
+	}
+	const t = (v ?? "").trim();
+	if (t.length > NOTES_MAX) {
+		return { error: `Observações: no máximo ${NOTES_MAX} caracteres` };
+	}
+	return { value: t === "" ? null : t };
+}
 
 function parseDate(v: unknown): Date | null {
 	if (typeof v !== "string") return null;
@@ -91,10 +113,13 @@ export function appointmentRoutes(databaseUrl: string) {
 				source: appointments.source,
 				// RF-A02: motivo do bloqueio (canceledReason reaproveitado)
 				canceledReason: appointments.canceledReason,
+				notes: appointments.notes,
 				clientId: appointments.clientId,
 				serviceId: appointments.serviceId,
 				userId: appointments.userId,
 				client_name: clients.name,
+				// como o cliente prefere ser chamado (mensagens de WhatsApp)
+				client_nickname: clients.nickname,
 				client_phone: clients.phoneE164,
 				service_name: services.name,
 				service_duration_min: services.durationMin,
@@ -201,6 +226,8 @@ export function appointmentRoutes(databaseUrl: string) {
 		if (isBlock && body.source !== "block") {
 			return c.json({ error: "source inválida (use 'block')" }, 400);
 		}
+		const notes = parseNotes(body.notes);
+		if ("error" in notes) return c.json({ error: notes.error }, 400);
 
 		try {
 			const [created] = await db
@@ -219,6 +246,7 @@ export function appointmentRoutes(databaseUrl: string) {
 						isBlock && typeof body.canceledReason === "string"
 							? body.canceledReason
 							: null,
+					notes: notes.value ?? null,
 					createdByUserId: user.id,
 				})
 				.returning();
@@ -297,6 +325,7 @@ export function appointmentRoutes(databaseUrl: string) {
 			startsAt?: unknown;
 			endsAt?: unknown;
 			canceledReason?: unknown;
+			notes?: unknown;
 		} | null;
 		if (!body) return c.json({ error: "body inválido" }, 400);
 
@@ -314,6 +343,10 @@ export function appointmentRoutes(databaseUrl: string) {
 
 		const patch: Partial<typeof appointments.$inferInsert> = {};
 
+		const notes = parseNotes(body.notes);
+		if ("error" in notes) return c.json({ error: notes.error }, 400);
+		if (notes.value !== undefined) patch.notes = notes.value;
+
 		if (body.status !== undefined) {
 			if (
 				body.status !== "canceled" &&
@@ -323,23 +356,44 @@ export function appointmentRoutes(databaseUrl: string) {
 			) {
 				return c.json({ error: "status inválido" }, 400);
 			}
-			// Decisão de produto 21/09: agendamento cujo horário já passou não
-			// muda de estado (cancelar/concluir/faltar exigem antecedência).
+			// Regras de status x horário (revisão 28/10 da decisão 21/09):
+			// - cancelar: a qualquer momento;
+			// - concluir / não compareceu: só até HOJE no fuso do negócio;
+			// - confirmar: só horário futuro.
 			// Mudar startsAt na MESMA request reabre o horário — nesse caso a
 			// mudança de status é legítima (remarcação + confirmação).
 			const rechedules =
 				body.startsAt !== undefined || body.endsAt !== undefined;
-			const newStart = rechedules
-				? (parseDate(body.startsAt) ?? current.startsAt)
-				: current.startsAt;
-			if (!rechedules && newStart.getTime() <= Date.now()) {
-				return c.json(
-					{
-						error:
-							"Este horário já passou — não é possível alterar o agendamento",
-					},
-					400,
-				);
+			if (!rechedules) {
+				if (body.status === "done" || body.status === "noshow") {
+					const [biz] = await db
+						.select({ timezone: businesses.timezone })
+						.from(businesses)
+						.where(eq(businesses.id, user.businessId))
+						.limit(1);
+					/* v8 ignore next -- business do usuário sempre existe (FK) */
+					const tz = biz?.timezone ?? "America/Sao_Paulo";
+					if (!startsOnOrBeforeToday(current.startsAt, tz)) {
+						return c.json(
+							{
+								error:
+									"Esse dia ainda não chegou — só dá pra concluir ou marcar falta a partir do dia do agendamento",
+							},
+							400,
+						);
+					}
+				} else if (
+					body.status === "confirmed" &&
+					current.startsAt.getTime() <= Date.now()
+				) {
+					return c.json(
+						{
+							error:
+								"Este horário já passou — não é possível alterar o agendamento",
+						},
+						400,
+					);
+				}
 			}
 			patch.status = body.status;
 			if (body.status === "canceled") {
@@ -405,7 +459,7 @@ export function appointmentRoutes(databaseUrl: string) {
 
 		if (Object.keys(patch).length === 0) {
 			return c.json(
-				{ error: "nada para atualizar (status/startsAt/endsAt)" },
+				{ error: "nada para atualizar (status/startsAt/endsAt/notes)" },
 				400,
 			);
 		}
@@ -442,6 +496,8 @@ export function appointmentRoutes(databaseUrl: string) {
 							status: "confirmed",
 							source: antiga.source,
 							gcalEventId: antiga.gcalEventId,
+							// observações acompanham a remarcação (ou as novas enviadas)
+							notes: notes.value !== undefined ? notes.value : antiga.notes,
 							createdByUserId: user.id,
 						})
 						.returning();

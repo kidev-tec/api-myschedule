@@ -1,12 +1,17 @@
 /**
- * Integração REAL: horário passado não muda de estado (decisão de produto
- * 21/09). PATCH /appointments/:id com status (canceled/done/noshow/confirmed)
- * sobre startsAt já passado → 400 com mensagem humana.
- * Remarcação (startsAt/endsAt na mesma request) continua legítima.
+ * Integração REAL: regras de status x horário (revisão 28/10 da decisão
+ * de produto 21/09).
+ * - Cancelar: a qualquer momento (passado ou futuro).
+ * - Concluir / Não compareceu: só até HOJE no fuso do negócio — nunca
+ *   num dia que ainda não chegou.
+ * - Confirmar: só horário futuro (passado → 400).
+ * - Remarcar (startsAt/endsAt na mesma request): sempre; a linha original
+ *   vira cancelada "remarcado" e nasce uma nova confirmada.
  */
 
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { dayKey } from "../../src/domain/schedule-day.js";
 
 const verifyMock = vi.hoisted(() => vi.fn());
 const sendToUserMock = vi.hoisted(() => vi.fn(async () => undefined));
@@ -117,26 +122,90 @@ afterAll(async () => {
 	await sql.end();
 });
 
-describe("horário passado não muda de estado (produto 21/09)", () => {
-	it.each(["canceled", "done", "noshow", "confirmed"] as const)(
-		"PATCH status=%s sobre horário passado → 400",
+async function patch(
+	h: Record<string, string>,
+	id: string,
+	body: Record<string, unknown>,
+) {
+	return app.request(`/v1/appointments/${id}`, {
+		method: "PATCH",
+		headers: { "content-type": "application/json", ...h },
+		body: JSON.stringify(body),
+	});
+}
+
+describe("status x horário (revisão 28/10)", () => {
+	it.each(["canceled", "done", "noshow"] as const)(
+		"PATCH status=%s sobre horário passado → 200",
 		async (status) => {
 			const h = authed(uid());
 			const base = await setupBase(h);
-			// cria direto no passado (a API não deixaria criar no passado)
 			const id = await createAppt(h, base, iso(-3600_000));
-			expect(id).toBeTruthy();
 
-			const res = await app.request(`/v1/appointments/${id}`, {
-				method: "PATCH",
-				headers: { "content-type": "application/json", ...h },
-				body: JSON.stringify({ status }),
-			});
-			expect(res.status).toBe(400);
-			const body = (await res.json()) as { error: string };
-			expect(body.error).toContain("já passou");
+			const res = await patch(h, id, { status });
+			expect(res.status).toBe(200);
+			const [row] = await sql<{ status: string }[]>`
+				SELECT status FROM appointments WHERE id = ${id}`;
+			expect(row?.status).toBe(status);
 		},
 	);
+
+	it("PATCH status=confirmed sobre horário passado → 400", async () => {
+		const h = authed(uid());
+		const base = await setupBase(h);
+		const id = await createAppt(h, base, iso(-3600_000));
+
+		const res = await patch(h, id, { status: "confirmed" });
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as { error: string };
+		expect(body.error).toContain("já passou");
+	});
+
+	it.each(["done", "noshow"] as const)(
+		"PATCH status=%s num dia que ainda não chegou → 400",
+		async (status) => {
+			const h = authed(uid());
+			const base = await setupBase(h);
+			const id = await createAppt(h, base, iso(2 * 24 * 3600_000));
+
+			const res = await patch(h, id, { status });
+			expect(res.status).toBe(400);
+			const body = (await res.json()) as { error: string };
+			expect(body.error).toContain("ainda não chegou");
+		},
+	);
+
+	it("PATCH status=done hoje, mais tarde → 200 (só bloqueia dia futuro)", async () => {
+		const h = authed(uid());
+		const base = await setupBase(h);
+		const start = iso(120_000); // daqui a 2 min
+		const id = await createAppt(h, base, start);
+		// perto da meia-noite de Brasília os 2 min podem virar o dia
+		const mesmoDia =
+			dayKey(new Date(start), "America/Sao_Paulo") ===
+			dayKey(new Date(), "America/Sao_Paulo");
+
+		const res = await patch(h, id, { status: "done" });
+		expect(res.status).toBe(mesmoDia ? 200 : 400);
+	});
+
+	it("remarcar horário passado: original vira cancelado 'remarcado' + novo confirmado", async () => {
+		const h = authed(uid());
+		const base = await setupBase(h);
+		const id = await createAppt(h, base, iso(-3600_000));
+
+		const res = await patch(h, id, { startsAt: iso(7200_000) });
+		expect(res.status).toBe(200);
+		const { appointment } = (await res.json()) as {
+			appointment: { id: string; status: string };
+		};
+		expect(appointment.id).not.toBe(id);
+		expect(appointment.status).toBe("confirmed");
+		const [old] = await sql<{ status: string; canceled_reason: string }[]>`
+			SELECT status, canceled_reason FROM appointments WHERE id = ${id}`;
+		expect(old?.status).toBe("canceled");
+		expect(old?.canceled_reason).toBe("remarcado");
+	});
 
 	it("PATCH status sobre horário futuro → 200 (cancelamento com antecedência livre)", async () => {
 		const h = authed(uid());
@@ -191,5 +260,22 @@ describe("horário passado não muda de estado (produto 21/09)", () => {
 			}),
 		});
 		expect(res.status).toBe(200);
+	});
+});
+
+describe("GET /appointments — apelido do cliente", () => {
+	it("devolve client_nickname (como o cliente prefere ser chamado)", async () => {
+		const h = authed(uid());
+		const base = await setupBase(h);
+		await sql`UPDATE clients SET nickname = 'Dudu' WHERE id = ${base.clientId}`;
+		const id = await createAppt(h, base, iso(2 * 3600_000));
+		const list = await app.request(
+			`/v1/appointments?from=${iso(0)}&to=${iso(24 * 3600_000)}`,
+			{ headers: h },
+		);
+		const { appointments } = (await list.json()) as {
+			appointments: { id: string; client_nickname: string | null }[];
+		};
+		expect(appointments.find((a) => a.id === id)?.client_nickname).toBe("Dudu");
 	});
 });
