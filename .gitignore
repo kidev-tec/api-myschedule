@@ -9,3 +9,5 @@ data/
 .DS_Store
 *.tsbuildinfo
 public/apks/*.apk
+# manifesto do updater: escrito na VPS pelo scripts/fetch-apk.sh, fora do git
+public/version.json
