@@ -22,6 +22,7 @@ import {
 import { overlaps } from "../domain/booking.js";
 import { confirmationToken } from "../domain/confirmation-token.js";
 import { mirrorToCalendar } from "../domain/gcal-mirror.js";
+import { startsOnOrBeforeToday } from "../domain/schedule-day.js";
 import { sendToUser } from "../services/fcm.js";
 import type { AppEnv } from "../types.js";
 
@@ -323,23 +324,44 @@ export function appointmentRoutes(databaseUrl: string) {
 			) {
 				return c.json({ error: "status inválido" }, 400);
 			}
-			// Decisão de produto 21/09: agendamento cujo horário já passou não
-			// muda de estado (cancelar/concluir/faltar exigem antecedência).
+			// Regras de status x horário (revisão 28/10 da decisão 21/09):
+			// - cancelar: a qualquer momento;
+			// - concluir / não compareceu: só até HOJE no fuso do negócio;
+			// - confirmar: só horário futuro.
 			// Mudar startsAt na MESMA request reabre o horário — nesse caso a
 			// mudança de status é legítima (remarcação + confirmação).
 			const rechedules =
 				body.startsAt !== undefined || body.endsAt !== undefined;
-			const newStart = rechedules
-				? (parseDate(body.startsAt) ?? current.startsAt)
-				: current.startsAt;
-			if (!rechedules && newStart.getTime() <= Date.now()) {
-				return c.json(
-					{
-						error:
-							"Este horário já passou — não é possível alterar o agendamento",
-					},
-					400,
-				);
+			if (!rechedules) {
+				if (body.status === "done" || body.status === "noshow") {
+					const [biz] = await db
+						.select({ timezone: businesses.timezone })
+						.from(businesses)
+						.where(eq(businesses.id, user.businessId))
+						.limit(1);
+					/* v8 ignore next -- business do usuário sempre existe (FK) */
+					const tz = biz?.timezone ?? "America/Sao_Paulo";
+					if (!startsOnOrBeforeToday(current.startsAt, tz)) {
+						return c.json(
+							{
+								error:
+									"Esse dia ainda não chegou — só dá pra concluir ou marcar falta a partir do dia do agendamento",
+							},
+							400,
+						);
+					}
+				} else if (
+					body.status === "confirmed" &&
+					current.startsAt.getTime() <= Date.now()
+				) {
+					return c.json(
+						{
+							error:
+								"Este horário já passou — não é possível alterar o agendamento",
+						},
+						400,
+					);
+				}
 			}
 			patch.status = body.status;
 			if (body.status === "canceled") {
