@@ -118,6 +118,8 @@ export function appointmentRoutes(databaseUrl: string) {
 				serviceId: appointments.serviceId,
 				userId: appointments.userId,
 				client_name: clients.name,
+				// como o cliente prefere ser chamado (mensagens de WhatsApp)
+				client_nickname: clients.nickname,
 				client_phone: clients.phoneE164,
 				service_name: services.name,
 				service_duration_min: services.durationMin,

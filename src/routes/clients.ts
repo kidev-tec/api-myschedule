@@ -3,7 +3,8 @@
  *
  * Contrato do app (clients_page, client_form_page, booking_wizard):
  * - GET  /clients → [{ id, name, phone_e164, email }]
- * - POST /clients { name, phone_e164, email?, birthday?, notes? } → cria
+ * - POST /clients { name, phone_e164, email?, birthday?, notes?, cpf?, nickname?,
+ *   referral_source?, marketing_consent?, address? } → cria
  * - GET  /clients/:id
  * - PATCH /clients/:id { name, phone_e164, email?, birthday?, notes? } → edita
  *   (dedupe: telefone que já existe em OUTRO cliente do negócio → 409;
@@ -15,6 +16,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { type Db, getDb } from "../db/connection.js";
 import { appointments, clients, services, users } from "../db/schema.js";
+import { parseClientProfile } from "../domain/client-profile.js";
 import type { AppEnv } from "../types.js";
 
 function serialize(r: typeof clients.$inferSelect) {
@@ -25,6 +27,19 @@ function serialize(r: typeof clients.$inferSelect) {
 		email: r.email,
 		birthday: r.birthday,
 		notes: r.notes,
+		cpf: r.cpf,
+		nickname: r.nickname,
+		referral_source: r.referralSource,
+		marketing_consent: r.marketingConsent,
+		address: {
+			zip: r.addressZip,
+			street: r.addressStreet,
+			number: r.addressNumber,
+			complement: r.addressComplement,
+			district: r.addressDistrict,
+			city: r.addressCity,
+			state: r.addressState,
+		},
 	};
 }
 
@@ -76,6 +91,8 @@ export function clientsRoutes(databaseUrl: string) {
 			birthday?: unknown;
 			notes?: unknown;
 		} | null;
+		const profile = parseClientProfile(body ?? {});
+		if ("error" in profile) return c.json({ error: profile.error }, 400);
 		const name = typeof body?.name === "string" ? body.name.trim() : "";
 		const phone =
 			typeof body?.phone_e164 === "string" ? body.phone_e164.trim() : "";
@@ -100,6 +117,7 @@ export function clientsRoutes(databaseUrl: string) {
 					email,
 					birthday,
 					notes,
+					...profile.value,
 				})
 				.returning()
 		)[0];
@@ -260,6 +278,8 @@ export function clientsRoutes(databaseUrl: string) {
 		const email = optionalText(body?.email);
 		const birthday = optionalText(body?.birthday);
 		const notes = optionalText(body?.notes);
+		const profile = parseClientProfile({ ...body });
+		if ("error" in profile) return c.json({ error: profile.error }, 400);
 
 		// Dedupe: telefone precisa continuar único dentro do negócio (exceto o próprio)
 		const dupes = await db
@@ -278,7 +298,14 @@ export function clientsRoutes(databaseUrl: string) {
 
 		const updated = await db
 			.update(clients)
-			.set({ name, phoneE164: phone, email, birthday, notes })
+			.set({
+				name,
+				phoneE164: phone,
+				email,
+				birthday,
+				notes,
+				...profile.value,
+			})
 			.where(
 				and(
 					eq(clients.id, id),
