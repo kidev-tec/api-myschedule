@@ -205,6 +205,8 @@ export const appointments = pgTable(
 		endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
 		status: appointmentStatusEnum("status").notNull().default("pending"),
 		source: appointmentSourceEnum("source").notNull().default("app"),
+		// Observações do prestador (privadas). Migration 0017.
+		notes: text("notes"),
 		canceledReason: text("canceled_reason"),
 		canceledAt: timestamp("canceled_at", { withTimezone: true }),
 		// F2 (migration 0014): push de lembrete já enviado (idempotência do job)

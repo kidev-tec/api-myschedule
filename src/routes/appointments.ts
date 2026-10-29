@@ -51,7 +51,28 @@ type CreateBody = {
 	// canceledReason é reaproveitado como MOTIVO do bloqueio (campo já existia).
 	source?: unknown;
 	canceledReason?: unknown;
+	notes?: unknown;
 };
+
+const NOTES_MAX = 1000;
+
+/**
+ * Observações do prestador: texto opcional, aparado; vazio vira null.
+ * `undefined` = campo não enviado. Retorna `{ error }` se inválido.
+ */
+function parseNotes(
+	v: unknown,
+): { value: string | null | undefined } | { error: string } {
+	if (v === undefined) return { value: undefined };
+	if (v !== null && typeof v !== "string") {
+		return { error: "Observações devem ser texto" };
+	}
+	const t = (v ?? "").trim();
+	if (t.length > NOTES_MAX) {
+		return { error: `Observações: no máximo ${NOTES_MAX} caracteres` };
+	}
+	return { value: t === "" ? null : t };
+}
 
 function parseDate(v: unknown): Date | null {
 	if (typeof v !== "string") return null;
@@ -92,6 +113,7 @@ export function appointmentRoutes(databaseUrl: string) {
 				source: appointments.source,
 				// RF-A02: motivo do bloqueio (canceledReason reaproveitado)
 				canceledReason: appointments.canceledReason,
+				notes: appointments.notes,
 				clientId: appointments.clientId,
 				serviceId: appointments.serviceId,
 				userId: appointments.userId,
@@ -202,6 +224,8 @@ export function appointmentRoutes(databaseUrl: string) {
 		if (isBlock && body.source !== "block") {
 			return c.json({ error: "source inválida (use 'block')" }, 400);
 		}
+		const notes = parseNotes(body.notes);
+		if ("error" in notes) return c.json({ error: notes.error }, 400);
 
 		try {
 			const [created] = await db
@@ -220,6 +244,7 @@ export function appointmentRoutes(databaseUrl: string) {
 						isBlock && typeof body.canceledReason === "string"
 							? body.canceledReason
 							: null,
+					notes: notes.value ?? null,
 					createdByUserId: user.id,
 				})
 				.returning();
@@ -298,6 +323,7 @@ export function appointmentRoutes(databaseUrl: string) {
 			startsAt?: unknown;
 			endsAt?: unknown;
 			canceledReason?: unknown;
+			notes?: unknown;
 		} | null;
 		if (!body) return c.json({ error: "body inválido" }, 400);
 
@@ -314,6 +340,10 @@ export function appointmentRoutes(databaseUrl: string) {
 		if (!current) return c.json({ error: "agendamento não encontrado" }, 404);
 
 		const patch: Partial<typeof appointments.$inferInsert> = {};
+
+		const notes = parseNotes(body.notes);
+		if ("error" in notes) return c.json({ error: notes.error }, 400);
+		if (notes.value !== undefined) patch.notes = notes.value;
 
 		if (body.status !== undefined) {
 			if (
@@ -427,7 +457,7 @@ export function appointmentRoutes(databaseUrl: string) {
 
 		if (Object.keys(patch).length === 0) {
 			return c.json(
-				{ error: "nada para atualizar (status/startsAt/endsAt)" },
+				{ error: "nada para atualizar (status/startsAt/endsAt/notes)" },
 				400,
 			);
 		}
@@ -464,6 +494,8 @@ export function appointmentRoutes(databaseUrl: string) {
 							status: "confirmed",
 							source: antiga.source,
 							gcalEventId: antiga.gcalEventId,
+							// observações acompanham a remarcação (ou as novas enviadas)
+							notes: notes.value !== undefined ? notes.value : antiga.notes,
 							createdByUserId: user.id,
 						})
 						.returning();
