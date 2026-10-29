@@ -83,6 +83,35 @@ describe("updater: GET /version", () => {
 		expect(await res.text()).toContain("apk-fake");
 	});
 
+	it("GET /v1/version e /v1/apks/* respondem sem token (URLs do app)", async () => {
+		// o app monta as URLs a partir de API_BASE_URL (…/v1) e não manda
+		// Authorization: antes caía no firebaseAuthMiddleware → 401
+		const { vi } = await import("vitest");
+		vi.doMock("firebase-admin/auth", () => ({
+			getAuth: () => ({
+				verifyIdToken: async () => {
+					throw new Error("sem token");
+				},
+			}),
+		}));
+		vi.doMock("firebase-admin/app", () => ({
+			getApps: vi.fn(() => [{} as never]),
+		}));
+		const { createApp } = await import("../../src/app.js");
+		const app = createApp({
+			databaseUrl: process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL!,
+			firebaseProjectId: "t",
+		});
+		const v = await app.request("/v1/version");
+		expect(v.status).toBe(200);
+		expect(((await v.json()) as { apk_url: string }).apk_url).toContain(
+			"/apks/",
+		);
+		const apk = await app.request("/v1/apks/test.apk");
+		expect(apk.status).toBe(200);
+		expect(await apk.text()).toContain("apk-fake");
+	});
+
 	it("readAppVersion: arquivo não existe → default", () => {
 		const v = parseVersionFile("/tmp/nao-existe-version.json");
 		expect(v.version).toBe("0.0.0");
