@@ -13,8 +13,17 @@ type Messaging = {
 	send(message: {
 		token: string;
 		notification: { title: string; body: string };
+		data?: Record<string, string>;
+		android?: {
+			priority: "high" | "normal";
+			notification: { channelId: string; defaultSound: boolean };
+		};
+		apns?: { payload: { aps: { sound: string } } };
 	}): Promise<string>;
 };
+
+/** Canal Android dos avisos (criado pelo app: "Agendamentos"). */
+export const ANDROID_CHANNEL_ID = "agendamentos";
 
 let messaging: Messaging | null = null;
 
@@ -41,6 +50,7 @@ export async function sendToUser(
 	userId: string,
 	title: string,
 	body: string,
+	data?: Record<string, string>,
 ): Promise<void> {
 	try {
 		const m = await getMessaging();
@@ -56,6 +66,18 @@ export async function sendToUser(
 				await m.send({
 					token: t.fcmToken,
 					notification: { title, body },
+					// dados pro app reagir (ex.: atualizar a agenda)
+					...(data ? { data } : {}),
+					// Som/vibração = padrão do celular: o próprio aparelho decide
+					// (normal toca, vibrar vibra, silencioso fica quieto).
+					android: {
+						priority: "high",
+						notification: {
+							channelId: ANDROID_CHANNEL_ID,
+							defaultSound: true,
+						},
+					},
+					apns: { payload: { aps: { sound: "default" } } },
 				});
 			} catch (err) {
 				const code =

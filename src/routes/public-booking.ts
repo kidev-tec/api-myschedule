@@ -275,12 +275,19 @@ export function publicBookingRoutes(databaseUrl: string) {
 			month: "2-digit",
 			hour: "2-digit",
 			minute: "2-digit",
+			// fuso do NEGÓCIO — o servidor roda em UTC em produção
+			timeZone: loaded.biz.timezone,
 		});
 		sendToUser(
 			databaseUrl,
 			loaded.pro.id,
 			"Novo agendamento",
 			`${client.name} — ${svc.name} em ${when}`,
+			{
+				type: "new_booking",
+				appointment_id: created.id,
+				starts_at: created.startsAt.toISOString(),
+			},
 		).catch(/* v8 ignore next -- best-effort FCM */ () => {});
 
 		return c.json(
