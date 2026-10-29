@@ -110,6 +110,9 @@ describe("updater: GET /version", () => {
 		const apk = await app.request("/v1/apks/test.apk");
 		expect(apk.status).toBe(200);
 		expect(await apk.text()).toContain("apk-fake");
+		// HEAD (checagem do fetch-apk.sh) não pode cair no paywall sem authUser
+		const head = await app.request("/v1/apks/test.apk", { method: "HEAD" });
+		expect(head.status).toBe(200);
 	});
 
 	it("readAppVersion: arquivo não existe → default", () => {

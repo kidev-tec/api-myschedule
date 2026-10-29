@@ -75,6 +75,9 @@ export function createApp(opts: {
 		// F5: entrada na lista de espera é pública (vem do link de booking);
 		// o cliente não tem conta no app.
 		"/v1/p/",
+		// updater: público, sem authUser (HEAD do APK também passa)
+		"/v1/version",
+		"/v1/apks/",
 	];
 	app.use("/v1/*", async (c, next) => {
 		if (
