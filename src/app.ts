@@ -41,12 +41,15 @@ export function createApp(opts: {
 	// Google Calendar (Google chama sem ID token; a chamada é autenticada
 	// pelo state=uid e o código de autorização de uso único), a logo
 	// pública (o link de agendamento carrega a imagem sem conta) e a
-	// confirmação do cliente (RF-B02: token HMAC no link do WhatsApp).
+	// confirmação do cliente (RF-B02: token HMAC no link do WhatsApp) e o
+	// updater (o app checa versão e baixa o APK sem token).
 	const publicPaths = [
 		"/v1/gcal/callback",
 		"/v1/businesses/",
 		"/v1/internal/",
 		"/v1/p/",
+		"/v1/version",
+		"/v1/apks/",
 	];
 	app.use("/v1/*", async (c, next) => {
 		if (publicPaths.some((p) => c.req.path.startsWith(p))) {
@@ -72,6 +75,9 @@ export function createApp(opts: {
 		// F5: entrada na lista de espera é pública (vem do link de booking);
 		// o cliente não tem conta no app.
 		"/v1/p/",
+		// updater: público, sem authUser (HEAD do APK também passa)
+		"/v1/version",
+		"/v1/apks/",
 	];
 	app.use("/v1/*", async (c, next) => {
 		if (
@@ -109,21 +115,25 @@ export function createApp(opts: {
 	// RF-07 — link público (sem Firebase auth; rotas /p/*)
 	app.route("/", publicBookingRoutes(opts.databaseUrl));
 
-	// Updater — versão do app + download do APK (sem auth)
+	// Updater — versão do app + download do APK (sem auth). Também em /v1:
+	// o app monta as URLs a partir de API_BASE_URL (que termina em /v1).
 	app.route("/", versionRoutes());
+	app.route("/v1", versionRoutes());
 
 	// RF-08 — Google Calendar (authed; callback é público por natureza)
 	app.route("/v1", gcalRoutes(opts.databaseUrl));
 
 	// Docs — OpenAPI 3.1 + Scalar UI (público)
 	app.route("/", docsRoutes());
-	app.use(
-		"/apks/*",
-		serveStatic({
-			root: "./public/apks",
-			rewriteRequestPath: (p) => p.replace(/^\/apks/, ""),
-		}),
-	);
+	for (const prefix of ["/apks", "/v1/apks"]) {
+		app.use(
+			`${prefix}/*`,
+			serveStatic({
+				root: "./public/apks",
+				rewriteRequestPath: (p) => p.replace(/^(\/v1)?\/apks/, ""),
+			}),
+		);
+	}
 
 	return app;
 }
