@@ -107,6 +107,8 @@ export const businesses = pgTable("businesses", {
 	addressCity: varchar("address_city", { length: 80 }),
 	addressState: varchar("address_state", { length: 2 }),
 	addressZip: varchar("address_zip", { length: 9 }),
+	// Cor do tema (identidade visual) "#RRGGBB"; null = cor do segmento (0019)
+	themeColor: varchar("theme_color", { length: 7 }),
 	createdAt: timestamp("created_at", { withTimezone: true })
 		.notNull()
 		.defaultNow(),

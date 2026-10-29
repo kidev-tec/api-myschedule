@@ -275,6 +275,7 @@ export function meRoutes(databaseUrl: string) {
 			subscription_status: biz.subscriptionStatus,
 			trial_ends_at: biz.trialEndsAt,
 			logo_url: biz.logoData ? `/v1/businesses/${biz.slug}/logo` : null,
+			theme_color: biz.themeColor,
 			onboarding_complete: svc.n > 0 && wh.n > 0,
 			address: {
 				street: biz.addressStreet,
@@ -359,6 +360,7 @@ export function meRoutes(databaseUrl: string) {
 			business_name?: unknown;
 			business_type?: unknown;
 			address?: unknown;
+			theme_color?: unknown;
 		} | null;
 		// PATCH parcial: cada campo é opcional, mas se vier tem que ser válido.
 		// (ensureProvisioned do app faz PATCH só com business_type; o
@@ -414,11 +416,29 @@ export function meRoutes(databaseUrl: string) {
 				addressUpdate = undefined;
 			}
 		}
+		// Cor do tema: "#RRGGBB" ou null (volta pra cor do segmento).
+		let themeColor: string | null | undefined;
+		if (body?.theme_color !== undefined) {
+			if (body.theme_color === null) {
+				themeColor = null;
+			} else if (
+				typeof body.theme_color === "string" &&
+				/^#[0-9a-fA-F]{6}$/.test(body.theme_color)
+			) {
+				themeColor = body.theme_color.toUpperCase();
+			} else {
+				return c.json(
+					{ error: "theme_color inválido (use #RRGGBB ou null)" },
+					400,
+				);
+			}
+		}
 		// PATCH sem nenhum campo conhecido (body null/quebrado/vazio) → 400.
 		if (
 			businessName === undefined &&
 			body?.business_type === undefined &&
-			addressUpdate === undefined
+			addressUpdate === undefined &&
+			themeColor === undefined
 		) {
 			return c.json({ error: "nada para atualizar" }, 400);
 		}
@@ -486,6 +506,7 @@ export function meRoutes(databaseUrl: string) {
 				...(businessName !== undefined ? { name: businessName } : {}),
 				...(businessType ? { businessType } : {}),
 				...(addressUpdate ?? {}),
+				...(themeColor !== undefined ? { themeColor } : {}),
 			})
 			.where(eq(businesses.id, me.businessId));
 		return c.json({
@@ -493,6 +514,7 @@ export function meRoutes(databaseUrl: string) {
 			business_name: businessName ?? null,
 			business_type: businessType ?? null,
 			address: addressUpdate ?? null,
+			theme_color: themeColor ?? null,
 		});
 	});
 
