@@ -338,6 +338,35 @@ describe("PATCH /v1/appointments/:id — buffer_min", () => {
 		expect(res.status).toBe(409);
 	});
 
+	it.each(["done", "noshow"])(
+		"400: status=%s com só buffer_min num dia que ainda não chegou",
+		async (status) => {
+			const h = authed(uid());
+			const { ids } = await setup(h);
+			// segunda-feira pelo menos 7 dias à frente, 09:00 local (UTC-3)
+			const d = new Date();
+			d.setUTCDate(d.getUTCDate() + 7 + ((8 - d.getUTCDay()) % 7));
+			const future = `${d.toISOString().slice(0, 10)}T12:00:00.000Z`;
+			const created = (await (
+				await req(h, "POST", "/v1/appointments", {
+					...ids,
+					startsAt: future,
+					duration_min: 30,
+				})
+			).json()) as { appointment: Appt };
+			const res = await req(
+				h,
+				"PATCH",
+				`/v1/appointments/${created.appointment.id}`,
+				{ status, buffer_min: 0 },
+			);
+			expect(res.status).toBe(400);
+			expect(((await res.json()) as { error: string }).error).toContain(
+				"ainda não chegou",
+			);
+		},
+	);
+
 	it("400: buffer_min inválido no PATCH", async () => {
 		const h = authed(uid());
 		const { ids } = await setup(h);

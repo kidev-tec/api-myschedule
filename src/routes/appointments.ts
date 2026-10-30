@@ -609,12 +609,12 @@ export function appointmentRoutes(databaseUrl: string) {
 			// - concluir / não compareceu: só até HOJE no fuso do negócio;
 			// - confirmar: só horário futuro.
 			// Mudar startsAt na MESMA request reabre o horário — nesse caso a
-			// mudança de status é legítima (remarcação + confirmação).
+			// mudança de status é legítima (remarcação + confirmação). Só a
+			// folga (buffer_min) não mexe no horário e não libera a regra.
 			const rechedules =
 				body.startsAt !== undefined ||
 				body.endsAt !== undefined ||
-				body.duration_min !== undefined ||
-				body.buffer_min !== undefined;
+				body.duration_min !== undefined;
 			if (!rechedules) {
 				if (body.status === "done" || body.status === "noshow") {
 					const [biz] = await db
