@@ -7,7 +7,7 @@
  *    → erro SQL 23P01 mapeado para 409
  */
 
-import { and, asc, eq, gt, gte, lt, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, isNotNull, lt, lte, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { type Db, getDb } from "../db/connection.js";
 import {
@@ -104,6 +104,70 @@ function isUuid(v: unknown): v is string {
 	);
 }
 
+// RF-A: par técnico do bloqueio de horário. O schema exige cliente+serviço
+// em todo appointment; o bloqueio usa um par por business criado JÁ oculto:
+// serviço arquivado (fora da lista, do wizard e do link público) e cliente
+// removido (fora da lista de clientes). A agenda ainda mostra os nomes via
+// join. Antes o app tentava criar esse par e falhava (nunca funcionou).
+export const BLOCK_SERVICE_NAME = "Bloqueio";
+export const BLOCK_CLIENT_NAME = "— bloqueio —";
+
+async function blockPair(
+	db: Db,
+	businessId: string,
+): Promise<{ clientId: string; serviceId: string }> {
+	let [svc] = await db
+		.select({ id: services.id })
+		.from(services)
+		.where(
+			and(
+				eq(services.businessId, businessId),
+				eq(services.name, BLOCK_SERVICE_NAME),
+				isNotNull(services.archivedAt),
+			),
+		)
+		.limit(1);
+	if (!svc) {
+		[svc] = await db
+			.insert(services)
+			.values({
+				businessId,
+				name: BLOCK_SERVICE_NAME,
+				durationMin: 60,
+				priceCents: 0,
+				archivedAt: new Date(),
+			})
+			.returning({ id: services.id });
+	}
+	let [cli] = await db
+		.select({ id: clients.id })
+		.from(clients)
+		.where(
+			and(
+				eq(clients.businessId, businessId),
+				eq(clients.name, BLOCK_CLIENT_NAME),
+				isNotNull(clients.deletedAt),
+			),
+		)
+		.limit(1);
+	if (!cli) {
+		// telefone vazio: o link público (que casa cliente por telefone com
+		// 10+ dígitos) nunca reaproveita este registro
+		[cli] = await db
+			.insert(clients)
+			.values({
+				businessId,
+				name: BLOCK_CLIENT_NAME,
+				phoneE164: "",
+				deletedAt: new Date(),
+			})
+			.returning({ id: clients.id });
+	}
+	/* v8 ignore next -- INSERT..RETURNING nunca é vazio no Postgres */
+	if (!svc || !cli) throw new Error("falha ao preparar bloqueio");
+	return { clientId: cli.id, serviceId: svc.id };
+}
+
 export function appointmentRoutes(databaseUrl: string) {
 	const db = getDb(databaseUrl);
 	const routes = new Hono<AppEnv>();
@@ -168,15 +232,54 @@ export function appointmentRoutes(databaseUrl: string) {
 		const body = (await c.req.json().catch(() => null)) as CreateBody | null;
 		if (!body) return c.json({ error: "body inválido (JSON esperado)" }, 400);
 
-		const { clientId, serviceId, startsAt, endsAt } = body;
+		const { startsAt, endsAt } = body;
 		const professionalId = isUuid(body.userId) ? body.userId : user.id;
 
-		if (!isUuid(clientId) || !isUuid(serviceId)) {
-			return c.json(
-				{ error: "clientId e serviceId são obrigatórios (uuid)" },
-				400,
-			);
+		// RF-A: source opcional no POST. "block" = bloqueio de horário.
+		// Qualquer outro valor (além de omitir) é rejeitado — default é "app".
+		const isBlock = body.source !== undefined;
+		if (isBlock && body.source !== "block") {
+			return c.json({ error: "source inválida (use 'block')" }, 400);
 		}
+
+		let clientId: string;
+		let serviceId: string;
+		if (isBlock) {
+			// Bloqueio não tem cliente/serviço de verdade: a API usa um par
+			// técnico oculto (ignora o que o app mandar).
+			({ clientId, serviceId } = await blockPair(db, user.businessId));
+		} else {
+			if (!isUuid(body.clientId) || !isUuid(body.serviceId)) {
+				return c.json(
+					{ error: "clientId e serviceId são obrigatórios (uuid)" },
+					400,
+				);
+			}
+			clientId = body.clientId;
+			serviceId = body.serviceId;
+			// Serviço excluído (arquivado) não aceita NOVOS agendamentos; os já
+			// feitos continuam com ele (histórico) e podem ser remarcados (PATCH).
+			const [svc] = await db
+				.select({ archivedAt: services.archivedAt })
+				.from(services)
+				.where(
+					and(
+						eq(services.id, serviceId),
+						eq(services.businessId, user.businessId),
+					),
+				)
+				.limit(1);
+			if (svc?.archivedAt) {
+				return c.json(
+					{
+						error:
+							"Esse serviço foi excluído e não aceita novos agendamentos. Escolhe outro serviço.",
+					},
+					400,
+				);
+			}
+		}
+
 		const start = parseDate(startsAt);
 		if (!start) {
 			return c.json(
@@ -260,13 +363,6 @@ export function appointmentRoutes(databaseUrl: string) {
 					400,
 				);
 			}
-		}
-
-		// RF-A: source opcional no POST. "block" = bloqueio de horário.
-		// Qualquer outro valor (além de omitir) é rejeitado — default é "app".
-		const isBlock = body.source !== undefined;
-		if (isBlock && body.source !== "block") {
-			return c.json({ error: "source inválida (use 'block')" }, 400);
 		}
 
 		// 0020: folga após o atendimento. Omitida = padrão do negócio;

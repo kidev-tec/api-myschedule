@@ -112,10 +112,10 @@ describe("POST /v1/services — validação de duração (B3)", () => {
 		}
 	});
 
-	it("rejeita 10, 20 (não múltiplo de 15) e 495 (fora da faixa)", async () => {
+	it("rejeita 0, 7, 22 (não múltiplo de 5) e 485 (fora da faixa)", async () => {
 		const h = authed(uid());
 		await createdUser(h);
-		for (const d of [10, 20, 495]) {
+		for (const d of [0, 7, 22, 485]) {
 			const res = await app.request("/v1/services", {
 				method: "POST",
 				headers: { "content-type": "application/json", ...h },
@@ -138,7 +138,7 @@ describe("POST /v1/services — validação de duração (B3)", () => {
 		}
 	});
 
-	it("PATCH valida duração com a mesma regra (40 → 400, 45 → 200)", async () => {
+	it("PATCH valida duração com a mesma regra (42 → 400, 45 → 200)", async () => {
 		const h = authed(uid());
 		await createdUser(h);
 		const svc = await createService(h, "Corte");
@@ -146,7 +146,7 @@ describe("POST /v1/services — validação de duração (B3)", () => {
 		const bad = await app.request(`/v1/services/${svc.id}`, {
 			method: "PATCH",
 			headers: { "content-type": "application/json", ...h },
-			body: JSON.stringify({ duration_min: 40 }),
+			body: JSON.stringify({ duration_min: 42 }),
 		});
 		expect(bad.status).toBe(400);
 

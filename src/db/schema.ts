@@ -21,6 +21,7 @@ import {
 	integer,
 	pgEnum,
 	pgTable,
+	primaryKey,
 	serial,
 	text,
 	time,
@@ -146,12 +147,32 @@ export const services = pgTable(
 		name: varchar("name", { length: 120 }).notNull(),
 		durationMin: integer("duration_min").notNull(),
 		priceCents: integer("price_cents").notNull(),
+		// 0021: kit (combo) — itens em service_kit_items
+		isKit: boolean("is_kit").notNull().default(false),
 		archivedAt: timestamp("archived_at", { withTimezone: true }),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.notNull()
 			.defaultNow(),
 	},
 	(t) => [index("services_business_idx").on(t.businessId)],
+);
+
+/** 0021: itens de um kit (combo) de serviços. kit_id e service_id → services. */
+export const serviceKitItems = pgTable(
+	"service_kit_items",
+	{
+		kitId: uuid("kit_id")
+			.notNull()
+			.references(() => services.id),
+		serviceId: uuid("service_id")
+			.notNull()
+			.references(() => services.id),
+		position: integer("position").notNull().default(0),
+	},
+	(t) => [
+		primaryKey({ columns: [t.kitId, t.serviceId] }),
+		index("service_kit_items_service_idx").on(t.serviceId),
+	],
 );
 
 export const clients = pgTable(

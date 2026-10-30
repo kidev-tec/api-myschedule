@@ -1061,7 +1061,7 @@ describe("/v1/clients", () => {
 				await app.request(`/v1/services/${svc.id}`, {
 					method: "PATCH",
 					headers: { "content-type": "application/json", ...h },
-					body: JSON.stringify({ duration_min: 50 }),
+					body: JSON.stringify({ duration_min: 52 }),
 				})
 			).status,
 		).toBe(400);

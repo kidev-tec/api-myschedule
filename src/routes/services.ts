@@ -5,39 +5,52 @@
  * - GET    /services?q=busca → [{ id, name, duration_min, price_cents, archived_at }]
  *          (só ativos; ?q= filtra por nome, case-insensitive)
  * - POST   /services { name, duration_min, price_cents } → cria
- *          (duration_min: 15..480, múltiplo de 15)
+ *          (duration_min: 5..480, de 5 em 5 — mesma regra do agendamento)
  * - GET    /services/:id → um serviço (ativo)
  * - PATCH  /services/:id { name?, duration_min?, price_cents? } → edita
  * - DELETE /services/:id → ARCHIVE (soft: archived_at). Serviço arquivado
  *          some de novos agendamentos mas permanece no histórico de passados.
+ *          Serviço que está em kit ativo → 409 { kits }; ?kits=archive
+ *          arquiva os kits junto.
+ * - Kits (0021): POST/PATCH aceitam items: [serviceId, ...] (2..10). Kit vem
+ *   com is_kit: true e items: [{ id, name, duration_min, price_cents }].
  * - PATCH  /me { business_name } → renomeia o business do usuário
  */
 
-import { and, eq, ilike, isNull, sql } from "drizzle-orm";
+import { and, eq, ilike, inArray, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { type Db, getDb } from "../db/connection.js";
-import { businesses, services, users, workingHours } from "../db/schema.js";
-import { isValidBufferMin } from "../domain/duration.js";
+import {
+	businesses,
+	serviceKitItems,
+	services,
+	users,
+	workingHours,
+} from "../db/schema.js";
+import { isValidBufferMin, isValidDurationMin } from "../domain/duration.js";
+import {
+	activeKitsWith,
+	type KitItem,
+	kitItemsFor,
+	validateKitItems,
+} from "../domain/service-kits.js";
 import type { AppEnv } from "../types.js";
 
-// BARRA B3: duração de serviço 15..480 min, múltiplo de 15.
-function durationValida(v: unknown): v is number {
-	return (
-		typeof v === "number" &&
-		Number.isInteger(v) &&
-		v >= 15 &&
-		v <= 480 &&
-		v % 15 === 0
-	);
-}
+// Duração de serviço: mesma regra da duração por agendamento (5..480, de
+// 5 em 5) — antes era múltiplo de 15 e o app aceitava 70 → 400 confuso.
+const durationValida = isValidDurationMin;
 
-function serialize(r: typeof services.$inferSelect) {
+function serialize(r: typeof services.$inferSelect, items?: KitItem[]) {
 	return {
 		id: r.id,
 		name: r.name,
 		duration_min: r.durationMin,
 		price_cents: r.priceCents,
 		archived_at: r.archivedAt,
+		is_kit: r.isKit,
+		// só kits têm itens
+		/* v8 ignore next -- kitItemsFor devolve lista p/ todo kit */
+		...(r.isKit ? { items: items ?? [] } : {}),
 	};
 }
 
@@ -63,7 +76,11 @@ export function servicesRoutes(databaseUrl: string) {
 					...(busca ? [ilike(services.name, `%${busca}%`)] : []),
 				),
 			);
-		return c.json(rows.map(serialize));
+		const items = await kitItemsFor(
+			db,
+			rows.filter((r) => r.isKit).map((r) => r.id),
+		);
+		return c.json(rows.map((r) => serialize(r, items.get(r.id))));
 	});
 
 	routes.post("/services", async (c) => {
@@ -79,6 +96,7 @@ export function servicesRoutes(databaseUrl: string) {
 			name?: unknown;
 			duration_min?: unknown;
 			price_cents?: unknown;
+			items?: unknown;
 		} | null;
 		const name = typeof body?.name === "string" ? body.name.trim() : "";
 		const durationMin = body?.duration_min;
@@ -91,26 +109,44 @@ export function servicesRoutes(databaseUrl: string) {
 		) {
 			return c.json(
 				{
-					error:
-						"campos obrigatórios: name (str), duration_min (15..480, múltiplo de 15), price_cents (>=0)",
+					error: "Preencha nome, duração (5 a 480 minutos, de 5 em 5) e preço",
 				},
 				400,
 			);
 		}
-		const created = (
-			await db
+		// Kit (0021): items presentes → combo com esses serviços
+		let kitIds: string[] | undefined;
+		if (body?.items !== undefined) {
+			const v = await validateKitItems(db, me.businessId, body.items);
+			if ("error" in v) return c.json({ error: v.error }, 400);
+			kitIds = v.ids;
+		}
+		const created = await db.transaction(async (tx) => {
+			const [row] = await tx
 				.insert(services)
 				.values({
 					businessId: me.businessId,
 					name,
 					durationMin,
 					priceCents,
+					isKit: kitIds !== undefined,
 				})
-				.returning()
-		)[0];
-		/* v8 ignore next -- defensivo: INSERT..RETURNING nunca é vazio no Postgres */
-		if (!created) return c.json({ error: "falha ao criar serviço" }, 500);
-		return c.json(serialize(created), 201);
+				.returning();
+			/* v8 ignore next -- defensivo: INSERT..RETURNING nunca é vazio no Postgres */
+			if (!row) throw new Error("falha ao criar serviço");
+			if (kitIds) {
+				await tx.insert(serviceKitItems).values(
+					kitIds.map((serviceId, position) => ({
+						kitId: row.id,
+						serviceId,
+						position,
+					})),
+				);
+			}
+			return row;
+		});
+		const items = await kitItemsFor(db, created.isKit ? [created.id] : []);
+		return c.json(serialize(created, items.get(created.id)), 201);
 	});
 
 	routes.get("/services/:id", async (c) => {
@@ -136,7 +172,8 @@ export function servicesRoutes(databaseUrl: string) {
 			.limit(1);
 		const row = rows[0];
 		if (!row) return c.json({ error: "serviço não encontrado" }, 404);
-		return c.json(serialize(row));
+		const items = await kitItemsFor(db, row.isKit ? [row.id] : []);
+		return c.json(serialize(row, items.get(row.id)));
 	});
 
 	/** PATCH /services/:id — edita nome/duração/preço (disponibilidade = arquivar/recriar). */
@@ -156,7 +193,21 @@ export function servicesRoutes(databaseUrl: string) {
 			name?: unknown;
 			duration_min?: unknown;
 			price_cents?: unknown;
+			items?: unknown;
 		} | null;
+
+		const [current] = await db
+			.select({ isKit: services.isKit })
+			.from(services)
+			.where(
+				and(
+					eq(services.id, id),
+					eq(services.businessId, me.businessId),
+					isNull(services.archivedAt),
+				),
+			)
+			.limit(1);
+		if (!current) return c.json({ error: "serviço não encontrado" }, 404);
 
 		const updates: {
 			name?: string;
@@ -175,7 +226,7 @@ export function servicesRoutes(databaseUrl: string) {
 		if (body?.duration_min !== undefined) {
 			if (!durationValida(body.duration_min))
 				return c.json(
-					{ error: "duration_min deve ser 15..480, múltiplo de 15" },
+					{ error: "Duração inválida: de 5 a 480 minutos, de 5 em 5" },
 					400,
 				);
 			updates.durationMin = body.duration_min;
@@ -185,23 +236,42 @@ export function servicesRoutes(databaseUrl: string) {
 				return c.json({ error: "price_cents deve ser >= 0" }, 400);
 			updates.priceCents = body.price_cents;
 		}
-		if (Object.keys(updates).length === 0)
+		// Kit: troca a lista de itens inteira
+		let kitIds: string[] | undefined;
+		if (body?.items !== undefined) {
+			if (!current.isKit) {
+				return c.json({ error: "Só kits têm serviços incluídos (items)" }, 400);
+			}
+			const v = await validateKitItems(db, me.businessId, body.items, id);
+			if ("error" in v) return c.json({ error: v.error }, 400);
+			kitIds = v.ids;
+		}
+		if (Object.keys(updates).length === 0 && kitIds === undefined)
 			return c.json({ error: "nada para atualizar" }, 400);
 
-		const updated = await db
-			.update(services)
-			.set(updates)
-			.where(
-				and(
-					eq(services.id, id),
-					eq(services.businessId, me.businessId),
-					isNull(services.archivedAt),
-				),
-			)
-			.returning();
-		const upd = updated[0];
-		if (!upd) return c.json({ error: "serviço não encontrado" }, 404);
-		return c.json(serialize(upd));
+		const upd = await db.transaction(async (tx) => {
+			if (kitIds) {
+				await tx.delete(serviceKitItems).where(eq(serviceKitItems.kitId, id));
+				await tx.insert(serviceKitItems).values(
+					kitIds.map((serviceId, position) => ({
+						kitId: id,
+						serviceId,
+						position,
+					})),
+				);
+			}
+			const [row] =
+				Object.keys(updates).length > 0
+					? await tx
+							.update(services)
+							.set(updates)
+							.where(eq(services.id, id))
+							.returning()
+					: await tx.select().from(services).where(eq(services.id, id));
+			return row as typeof services.$inferSelect;
+		});
+		const items = await kitItemsFor(db, upd.isKit ? [id] : []);
+		return c.json(serialize(upd, items.get(id)));
 	});
 
 	routes.delete("/services/:id", async (c) => {
@@ -215,14 +285,47 @@ export function servicesRoutes(databaseUrl: string) {
 		const id = c.req.param("id");
 		if (!/^[0-9a-f-]{36}$/i.test(id))
 			return c.json({ error: "id inválido" }, 400);
-		const updated = await db
-			.update(services)
-			.set({ archivedAt: new Date() })
+		const [target] = await db
+			.select({ id: services.id })
+			.from(services)
 			.where(and(eq(services.id, id), eq(services.businessId, me.businessId)))
-			.returning();
-		const upd = updated[0];
-		if (!upd) return c.json({ error: "serviço não encontrado" }, 404);
-		return c.json(serialize(upd));
+			.limit(1);
+		if (!target) return c.json({ error: "serviço não encontrado" }, 404);
+
+		// Serviço dentro de kit ativo: avisa e não exclui — a menos que o
+		// prestador peça pra arquivar os kits junto (?kits=archive).
+		const kits = await activeKitsWith(db, id);
+		if (kits.length > 0 && c.req.query("kits") !== "archive") {
+			const nomes = kits.map((k) => `"${k.name}"`).join(", ");
+			return c.json(
+				{
+					error: `Esse serviço faz parte ${kits.length > 1 ? "dos kits" : "do kit"} ${nomes}. Tira ele ${kits.length > 1 ? "dos kits" : "do kit"} antes, ou exclui ${kits.length > 1 ? "os kits" : "o kit"} junto.`,
+					kits,
+				},
+				409,
+			);
+		}
+		const now = new Date();
+		const upd = await db.transaction(async (tx) => {
+			if (kits.length > 0) {
+				await tx
+					.update(services)
+					.set({ archivedAt: now })
+					.where(
+						inArray(
+							services.id,
+							kits.map((k) => k.id),
+						),
+					);
+			}
+			const [row] = await tx
+				.update(services)
+				.set({ archivedAt: now })
+				.where(eq(services.id, id))
+				.returning();
+			return row as typeof services.$inferSelect;
+		});
+		return c.json({ ...serialize(upd), archived_kits: kits });
 	});
 
 	return routes;

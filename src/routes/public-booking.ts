@@ -28,6 +28,7 @@ import {
 import { overlaps } from "../domain/booking.js";
 import { verifyConfirmationToken } from "../domain/confirmation-token.js";
 import { occupiedEnd } from "../domain/duration.js";
+import { kitItemsFor } from "../domain/service-kits.js";
 import { sendToUser } from "../services/fcm.js";
 
 function isUuid(v: unknown): v is string {
@@ -123,6 +124,7 @@ export function publicBookingRoutes(databaseUrl: string) {
 				name: services.name,
 				duration_min: services.durationMin,
 				price_cents: services.priceCents,
+				is_kit: services.isKit,
 			})
 			.from(services)
 			.where(
@@ -131,6 +133,11 @@ export function publicBookingRoutes(databaseUrl: string) {
 					isNull(services.archivedAt),
 				),
 			);
+		// 0021: kit mostra o que inclui ("Corte + Barba")
+		const kitItems = await kitItemsFor(
+			db,
+			svc.filter((s) => s.is_kit).map((s) => s.id),
+		);
 		const hours = await db
 			.select({
 				weekday: workingHours.weekday,
@@ -140,7 +147,27 @@ export function publicBookingRoutes(databaseUrl: string) {
 			.from(workingHours)
 			.where(eq(workingHours.userId, loaded.pro.id));
 
-		return c.json(infoJson(loaded, svc, hours));
+		return c.json(
+			infoJson(
+				loaded,
+				svc.map((s) =>
+					s.is_kit
+						? {
+								...s,
+								/* v8 ignore next -- kitItemsFor devolve lista p/ todo kit */
+								items: (kitItems.get(s.id) ?? []).map((i) => i.name),
+								// soma dos itens: > price_cents = kit com desconto
+								/* v8 ignore next -- kitItemsFor devolve lista p/ todo kit */
+								items_total_cents: (kitItems.get(s.id) ?? []).reduce(
+									(a, i) => a + i.price_cents,
+									0,
+								),
+							}
+						: s,
+				),
+				hours,
+			),
+		);
 	});
 
 	// ---- booking público
@@ -652,6 +679,8 @@ button:disabled{opacity:.5}
 <div id="app"><h1>Carregando…</h1></div>
 <script>
 const SLUG = "${s}";
+// nomes vêm do cadastro do prestador: escapa antes de pôr no HTML
+const esc = v => String(v).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch]);
 // B1: cópia JS de slotStillValid (src/domain/public-booking-ui.ts) — o HTML
 // não importa módulos. Teste de paridade em test/routes/public-booking.test.ts
 // extrai isto do HTML servido e compara com a função pura: drift quebra CI.
@@ -725,7 +754,7 @@ function renderForm(msg){
     <div class="card">
       <label>1. Escolhe o serviço</label>
       \${INFO.services.map(s=>\`<div class="svc\${SEL===s.id?' sel':''}" onclick="pick('\${s.id}')">
-        <span>\${s.name} · \${s.duration_min}min</span><b>\${brl(s.price_cents)}</b></div>\`).join('')}
+        <span>\${esc(s.name)} · \${s.duration_min}min\${s.items&&s.items.length?'<br><small class="mut">Kit: '+s.items.map(esc).join(' + ')+'</small>':''}</span><b>\${s.items_total_cents>s.price_cents?'<s class="mut">'+brl(s.items_total_cents)+'</s> ':''}\${brl(s.price_cents)}</b></div>\`).join('')}
       <label>2. Teus dados</label>
       <input id="nm" placeholder="Teu nome" value="\${NAME_DRAFT}">
       <input id="ph" placeholder="WhatsApp (com DDD)" inputmode="tel" style="margin-top:8px" value="\${PHONE_DRAFT}">
