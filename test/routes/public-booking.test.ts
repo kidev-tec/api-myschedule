@@ -299,6 +299,8 @@ describe("RF-07: link público de agendamento", () => {
 		const noStart = { ...ok };
 		delete (noStart as { starts_at?: string }).starts_at;
 		expect((await post(noStart)).status).toBe(400);
+		// SPEC v1.0.0: página pública nunca altera duração do serviço.
+		expect((await post({ ...ok, duration_min: 15 })).status).toBe(400);
 		expect(
 			(
 				await post({
@@ -576,6 +578,45 @@ describe("RF-07: link público de agendamento", () => {
 				},
 				false,
 			],
+			[
+				"0020: folga invade o próximo agendamento → inválido",
+				{
+					picked: new Date("2026-10-22T09:30:00"),
+					day,
+					durationMin: 25,
+					workingHours: whThu,
+					busy: busy10,
+					now,
+					bufferMin: 10,
+				},
+				false,
+			],
+			[
+				"0020: atendimento + folga encostam no próximo → válido",
+				{
+					picked: new Date("2026-10-22T09:30:00"),
+					day,
+					durationMin: 20,
+					workingHours: whThu,
+					busy: busy10,
+					now,
+					bufferMin: 10,
+				},
+				true,
+			],
+			[
+				"0020: folga pode passar do fechamento → válido",
+				{
+					picked: new Date("2026-10-22T17:30:00"),
+					day,
+					durationMin: 30,
+					workingHours: whThu,
+					busy: [],
+					now,
+					bufferMin: 15,
+				},
+				true,
+			],
 		];
 		for (const [name, input, expected] of cases) {
 			// função pura (TS, testada direto)
@@ -589,6 +630,7 @@ describe("RF-07: link público de agendamento", () => {
 					input.workingHours,
 					input.busy,
 					input.now,
+					input.bufferMin,
 				),
 				`inline: ${name}`,
 			).toBe(expected);

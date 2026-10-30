@@ -109,6 +109,8 @@ export const businesses = pgTable("businesses", {
 	addressZip: varchar("address_zip", { length: 9 }),
 	// Cor do tema (identidade visual) "#RRGGBB"; null = cor do segmento (0019)
 	themeColor: varchar("theme_color", { length: 7 }),
+	// 0020: folga padrão entre atendimentos (min). 0 = sem folga.
+	bufferMin: integer("buffer_min").notNull().default(0),
 	createdAt: timestamp("created_at", { withTimezone: true })
 		.notNull()
 		.defaultNow(),
@@ -217,6 +219,11 @@ export const appointments = pgTable(
 			.references(() => users.id),
 		startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
 		endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+		// 0020: folga após o atendimento (min) e fim do período ocupado
+		// (ends_at + buffer_min). occupied_until é preenchido por trigger no
+		// banco — nunca escrever direto; é o fim do range do EXCLUDE.
+		bufferMin: integer("buffer_min").notNull().default(0),
+		occupiedUntil: timestamp("occupied_until", { withTimezone: true }),
 		status: appointmentStatusEnum("status").notNull().default("pending"),
 		source: appointmentSourceEnum("source").notNull().default("app"),
 		// Observações do prestador (privadas). Migration 0017.
@@ -237,7 +244,11 @@ export const appointments = pgTable(
 		// NÚCLEO DO NEGÓCIO: impossível sobrepor agendamentos ativos do mesmo
 		// profissional no mesmo business. Cancelado/noshow liberam o slot.
 		uniqueIndex("appointments_no_overlap_idx")
-			.on(t.businessId, t.userId, sql`tstzrange(${t.startsAt}, ${t.endsAt})`)
+			.on(
+				t.businessId,
+				t.userId,
+				sql`tstzrange(${t.startsAt}, ${t.occupiedUntil})`,
+			)
 			.where(sql`status IN ('pending', 'confirmed')`),
 	],
 );

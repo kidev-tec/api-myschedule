@@ -27,6 +27,7 @@ import {
 } from "../db/schema.js";
 import { overlaps } from "../domain/booking.js";
 import { verifyConfirmationToken } from "../domain/confirmation-token.js";
+import { occupiedEnd } from "../domain/duration.js";
 import { sendToUser } from "../services/fcm.js";
 
 function isUuid(v: unknown): v is string {
@@ -87,6 +88,8 @@ function infoJson(
 			name: loaded.biz.name,
 			business_type: loaded.biz.businessType,
 			timezone: loaded.biz.timezone,
+			// 0020: folga após cada atendimento — a grade de slots soma isso
+			buffer_min: loaded.biz.bufferMin,
 			// endereço (F1): onde o atendimento acontece — cada campo pode ser
 			// null (business sem endereço cadastrado não exibe a linha)
 			address: {
@@ -164,7 +167,15 @@ export function publicBookingRoutes(databaseUrl: string) {
 			phone?: unknown;
 			service_id?: unknown;
 			starts_at?: unknown;
+			duration_min?: unknown;
 		} | null;
+		// Público deriva estritamente do serviço: não aceita override de duração.
+		if (body?.duration_min !== undefined) {
+			return c.json(
+				{ error: "duration_min não é permitido no agendamento público" },
+				400,
+			);
+		}
 		const name =
 			typeof body?.name === "string" ? body.name.trim().slice(0, 120) : "";
 		const phone =
@@ -205,10 +216,17 @@ export function publicBookingRoutes(databaseUrl: string) {
 			return c.json({ error: "escolha um horário no futuro" }, 400);
 		}
 		const end = new Date(start.getTime() + svc.durationMin * 60_000);
+		// 0020: link público sempre usa a folga padrão do negócio
+		const bufferMin = loaded.biz.bufferMin;
+		const busyUntil = occupiedEnd(end, bufferMin);
 
-		// conflito (mesma semântica do CRUD autenticado)
+		// conflito (mesma semântica do CRUD autenticado): [início, fim + folga)
 		const existing = await db
-			.select({ startsAt: appointments.startsAt, endsAt: appointments.endsAt })
+			.select({
+				startsAt: appointments.startsAt,
+				endsAt: appointments.endsAt,
+				bufferMin: appointments.bufferMin,
+			})
 			.from(appointments)
 			.where(
 				and(
@@ -218,7 +236,14 @@ export function publicBookingRoutes(databaseUrl: string) {
 				),
 			);
 		for (const row of existing) {
-			if (overlaps(row.startsAt, row.endsAt, start, end)) {
+			if (
+				overlaps(
+					row.startsAt,
+					occupiedEnd(row.endsAt, row.bufferMin),
+					start,
+					busyUntil,
+				)
+			) {
 				return c.json({ error: "esse horário acabou de ser ocupado" }, 409);
 			}
 		}
@@ -260,6 +285,7 @@ export function publicBookingRoutes(databaseUrl: string) {
 				userId: loaded.pro.id,
 				startsAt: start,
 				endsAt: end,
+				bufferMin,
 				status: "pending",
 				source: "public_link",
 			})
@@ -332,7 +358,11 @@ export function publicBookingRoutes(databaseUrl: string) {
 			);
 
 		const rows = await db
-			.select({ startsAt: appointments.startsAt, endsAt: appointments.endsAt })
+			.select({
+				startsAt: appointments.startsAt,
+				endsAt: appointments.endsAt,
+				bufferMin: appointments.bufferMin,
+			})
 			.from(appointments)
 			.where(
 				and(
@@ -345,9 +375,11 @@ export function publicBookingRoutes(databaseUrl: string) {
 			);
 		return c.json({
 			busy: [
+				// end inclui a folga do agendamento (período em que o
+				// profissional não pode começar outro atendimento)
 				...rows.map((r) => ({
 					start: r.startsAt.toISOString(),
-					end: r.endsAt.toISOString(),
+					end: occupiedEnd(r.endsAt, r.bufferMin).toISOString(),
 				})),
 				// bloqueios vão com flag pra o cliente ver "indisponível"
 				...timeOffs.map((t) => ({
@@ -623,7 +655,7 @@ const SLUG = "${s}";
 // B1: cópia JS de slotStillValid (src/domain/public-booking-ui.ts) — o HTML
 // não importa módulos. Teste de paridade em test/routes/public-booking.test.ts
 // extrai isto do HTML servido e compara com a função pura: drift quebra CI.
-function slotStillValid(picked, day, durationMin, workingHours, busy, now){
+function slotStillValid(picked, day, durationMin, workingHours, busy, now, bufferMin){
   if(picked.getTime() <= now.getTime()) return false;
   const wd = day.getDay();
   const h = workingHours.find(x=>x.weekday===wd);
@@ -633,7 +665,7 @@ function slotStillValid(picked, day, durationMin, workingHours, busy, now){
   const openMin = sh*60+sm, closeMin = eh*60;
   const startMin = picked.getHours()*60+picked.getMinutes();
   if(startMin < openMin || startMin+durationMin > closeMin) return false;
-  const startMs = picked.getTime(), endMs = startMs + durationMin*60000;
+  const startMs = picked.getTime(), endMs = startMs + (durationMin+(bufferMin||0))*60000;
   return !busy.some(b => startMs < new Date(b.end).getTime() && endMs > new Date(b.start).getTime());
 }
 document.documentElement.style.setProperty('--p', "${pal.p}");
@@ -727,8 +759,8 @@ let PICKED_KEEP = false;
 window.pick = id => { SEL=id; PICKED_KEEP=!!window.PICKED; renderForm(); };
 
 async function loadSlots(keepPicked){
-  // slots de 15min entre abrir/fechar do dia, já filtrando ocupados pela
-  // duração do serviço escolhido (GET /p/:slug/busy)
+  // slots de 10min entre abrir/fechar do dia, já filtrando ocupados pela
+  // duração do serviço escolhido + folga do negócio (GET /p/:slug/busy)
   const slots = document.getElementById('slots');
   slots.innerHTML = '<span class="mut">carregando…</span>';
   const wd = DAY.getDay();
@@ -737,13 +769,14 @@ async function loadSlots(keepPicked){
   const [sh,sm] = h.start_time.split(':').map(Number);
   const [eh] = h.end_time.split(':').map(Number);
   const out=[];
-  for(let m=sh*60+sm; m<eh*60; m+=15){
+  for(let m=sh*60+sm; m<eh*60; m+=10){
     const d = new Date(DAY); d.setHours(Math.floor(m/60), m%60, 0, 0);
     if(d > new Date()) out.push(d);
   }
   // duração do serviço selecionado (fallback 30min se ainda não escolheu)
   const svc = INFO.services.find(x=>x.id===SEL);
   const dur = (svc?svc.duration_min:30) * 60000;
+  const buf = (INFO.business.buffer_min||0) * 60000;
   let busy = [];
   try{
     const ds = DAY.getFullYear()+'-'+String(DAY.getMonth()+1).padStart(2,'0')+'-'+String(DAY.getDate()).padStart(2,'0');
@@ -752,7 +785,7 @@ async function loadSlots(keepPicked){
   }catch(e){}
   const conflicts = d => busy.some(b =>
     d.getTime() < new Date(b.end).getTime() &&
-    d.getTime()+dur > new Date(b.start).getTime());
+    d.getTime()+dur+buf > new Date(b.start).getTime());
   slots.innerHTML='';
   out.forEach(d=>{
     const el=document.createElement('div'); el.className='slot';
@@ -769,7 +802,7 @@ async function loadSlots(keepPicked){
   // slot escolhido virou indisponível (trocou serviço / foi ocupado)
   if(window.PICKED){
     const svc2 = INFO.services.find(x=>x.id===SEL);
-    const still = slotStillValid(window.PICKED, DAY, svc2?svc2.duration_min:30, INFO.working_hours, busy, new Date());
+    const still = slotStillValid(window.PICKED, DAY, svc2?svc2.duration_min:30, INFO.working_hours, busy, new Date(), INFO.business.buffer_min||0);
     if(!still){
       window.PICKED = null;
       const err=document.getElementById('err');

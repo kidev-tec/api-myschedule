@@ -17,6 +17,7 @@ import { and, eq, ilike, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { type Db, getDb } from "../db/connection.js";
 import { businesses, services, users, workingHours } from "../db/schema.js";
+import { isValidBufferMin } from "../domain/duration.js";
 import type { AppEnv } from "../types.js";
 
 // BARRA B3: duração de serviço 15..480 min, múltiplo de 15.
@@ -276,6 +277,7 @@ export function meRoutes(databaseUrl: string) {
 			trial_ends_at: biz.trialEndsAt,
 			logo_url: biz.logoData ? `/v1/businesses/${biz.slug}/logo` : null,
 			theme_color: biz.themeColor,
+			buffer_min: biz.bufferMin,
 			onboarding_complete: svc.n > 0 && wh.n > 0,
 			address: {
 				street: biz.addressStreet,
@@ -361,6 +363,7 @@ export function meRoutes(databaseUrl: string) {
 			business_type?: unknown;
 			address?: unknown;
 			theme_color?: unknown;
+			buffer_min?: unknown;
 		} | null;
 		// PATCH parcial: cada campo é opcional, mas se vier tem que ser válido.
 		// (ensureProvisioned do app faz PATCH só com business_type; o
@@ -433,12 +436,27 @@ export function meRoutes(databaseUrl: string) {
 				);
 			}
 		}
+		// Folga padrão entre atendimentos (0020): minutos, 0..120 de 5 em 5.
+		let bufferMin: number | undefined;
+		if (body?.buffer_min !== undefined) {
+			if (!isValidBufferMin(body.buffer_min)) {
+				return c.json(
+					{
+						error:
+							"Intervalo entre atendimentos inválido (0 a 120 minutos, de 5 em 5)",
+					},
+					400,
+				);
+			}
+			bufferMin = body.buffer_min;
+		}
 		// PATCH sem nenhum campo conhecido (body null/quebrado/vazio) → 400.
 		if (
 			businessName === undefined &&
 			body?.business_type === undefined &&
 			addressUpdate === undefined &&
-			themeColor === undefined
+			themeColor === undefined &&
+			bufferMin === undefined
 		) {
 			return c.json({ error: "nada para atualizar" }, 400);
 		}
@@ -507,6 +525,7 @@ export function meRoutes(databaseUrl: string) {
 				...(businessType ? { businessType } : {}),
 				...(addressUpdate ?? {}),
 				...(themeColor !== undefined ? { themeColor } : {}),
+				...(bufferMin !== undefined ? { bufferMin } : {}),
 			})
 			.where(eq(businesses.id, me.businessId));
 		return c.json({
@@ -515,6 +534,7 @@ export function meRoutes(databaseUrl: string) {
 			business_type: businessType ?? null,
 			address: addressUpdate ?? null,
 			theme_color: themeColor ?? null,
+			buffer_min: bufferMin ?? null,
 		});
 	});
 
