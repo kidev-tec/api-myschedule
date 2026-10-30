@@ -100,7 +100,7 @@ export function gcalRoutes(databaseUrl: string) {
 		return c.html(
 			'<div style="font-family:system-ui;text-align:center;padding:40px">' +
 				"<h1>✅ Google Calendar conectado!</h1>" +
-				"<p>Volte ao app Minha Agenda — os agendamentos confirmados vão aparecer no teu Calendar.</p>" +
+				"<p>Volte ao app AGENVA — os agendamentos confirmados vão aparecer no seu Calendar.</p>" +
 				"</div>",
 		);
 	});

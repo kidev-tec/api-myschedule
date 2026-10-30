@@ -1,5 +1,5 @@
 /**
- * Schema Drizzle — Minha Agenda (api)
+ * Schema Drizzle — AGENVA (api)
  *
  * Regras de integridade (ver ARCHITECTURE.md):
  * - Overlap de appointments impossível no banco: EXCLUDE USING gist em
@@ -19,8 +19,10 @@ import {
 	date,
 	index,
 	integer,
+	jsonb,
 	pgEnum,
 	pgTable,
+	primaryKey,
 	serial,
 	text,
 	time,
@@ -109,6 +111,8 @@ export const businesses = pgTable("businesses", {
 	addressZip: varchar("address_zip", { length: 9 }),
 	// Cor do tema (identidade visual) "#RRGGBB"; null = cor do segmento (0019)
 	themeColor: varchar("theme_color", { length: 7 }),
+	// 0020: folga padrão entre atendimentos (min). 0 = sem folga.
+	bufferMin: integer("buffer_min").notNull().default(0),
 	createdAt: timestamp("created_at", { withTimezone: true })
 		.notNull()
 		.defaultNow(),
@@ -144,12 +148,34 @@ export const services = pgTable(
 		name: varchar("name", { length: 120 }).notNull(),
 		durationMin: integer("duration_min").notNull(),
 		priceCents: integer("price_cents").notNull(),
+		// 0021: kit (combo) — itens em service_kit_items
+		isKit: boolean("is_kit").notNull().default(false),
+		// 0022: kit oculto montado na hora (vários serviços num agendamento)
+		adhoc: boolean("adhoc").notNull().default(false),
 		archivedAt: timestamp("archived_at", { withTimezone: true }),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.notNull()
 			.defaultNow(),
 	},
 	(t) => [index("services_business_idx").on(t.businessId)],
+);
+
+/** 0021: itens de um kit (combo) de serviços. kit_id e service_id → services. */
+export const serviceKitItems = pgTable(
+	"service_kit_items",
+	{
+		kitId: uuid("kit_id")
+			.notNull()
+			.references(() => services.id),
+		serviceId: uuid("service_id")
+			.notNull()
+			.references(() => services.id),
+		position: integer("position").notNull().default(0),
+	},
+	(t) => [
+		primaryKey({ columns: [t.kitId, t.serviceId] }),
+		index("service_kit_items_service_idx").on(t.serviceId),
+	],
 );
 
 export const clients = pgTable(
@@ -176,6 +202,8 @@ export const clients = pgTable(
 		addressDistrict: varchar("address_district", { length: 80 }),
 		addressCity: varchar("address_city", { length: 80 }),
 		addressState: varchar("address_state", { length: 2 }),
+		// 0023: 'app' (prestador cadastrou) | 'public_link' (agendamento online)
+		origin: varchar("origin", { length: 20 }).notNull().default("app"),
 		// Soft-delete (LGPD: purge real via endpoint dedicado)
 		deletedAt: timestamp("deleted_at", { withTimezone: true }),
 		createdAt: timestamp("created_at", { withTimezone: true })
@@ -217,6 +245,11 @@ export const appointments = pgTable(
 			.references(() => users.id),
 		startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
 		endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+		// 0020: folga após o atendimento (min) e fim do período ocupado
+		// (ends_at + buffer_min). occupied_until é preenchido por trigger no
+		// banco — nunca escrever direto; é o fim do range do EXCLUDE.
+		bufferMin: integer("buffer_min").notNull().default(0),
+		occupiedUntil: timestamp("occupied_until", { withTimezone: true }),
 		status: appointmentStatusEnum("status").notNull().default("pending"),
 		source: appointmentSourceEnum("source").notNull().default("app"),
 		// Observações do prestador (privadas). Migration 0017.
@@ -237,7 +270,11 @@ export const appointments = pgTable(
 		// NÚCLEO DO NEGÓCIO: impossível sobrepor agendamentos ativos do mesmo
 		// profissional no mesmo business. Cancelado/noshow liberam o slot.
 		uniqueIndex("appointments_no_overlap_idx")
-			.on(t.businessId, t.userId, sql`tstzrange(${t.startsAt}, ${t.endsAt})`)
+			.on(
+				t.businessId,
+				t.userId,
+				sql`tstzrange(${t.startsAt}, ${t.occupiedUntil})`,
+			)
 			.where(sql`status IN ('pending', 'confirmed')`),
 	],
 );
@@ -387,3 +424,29 @@ export const deviceTokens = pgTable("device_tokens", {
 		.notNull()
 		.defaultNow(),
 });
+
+/**
+ * 0024: central de notificações — todo push pro prestador fica guardado
+ * (sino + lista no app). read_at NULL = não lida.
+ */
+export const notifications = pgTable(
+	"notifications",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		businessId: uuid("business_id")
+			.notNull()
+			.references(() => businesses.id, { onDelete: "cascade" }),
+		userId: uuid("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		type: varchar("type", { length: 30 }).notNull(),
+		title: varchar("title", { length: 200 }).notNull(),
+		body: text("body").notNull().default(""),
+		data: jsonb("data").$type<Record<string, string>>(),
+		readAt: timestamp("read_at", { withTimezone: true }),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+	},
+	(t) => [index("notifications_user_created_idx").on(t.userId, t.createdAt)],
+);

@@ -190,4 +190,54 @@ describe("RF-A — bloqueio de horário (source='block')", () => {
 		});
 		expect(rebook.status).toBe(201);
 	});
+
+	it("bloqueio sem clientId/serviceId: API usa par técnico oculto e reaproveita", async () => {
+		const mk = (hora: number) =>
+			post({
+				startsAt: dayAt(hora).toISOString(),
+				endsAt: dayAt(hora + 1).toISOString(),
+				source: "block",
+				canceledReason: "almoço",
+			});
+		expect((await mk(18)).status).toBe(201);
+		expect((await mk(20)).status).toBe(201); // 2º reaproveita o par
+
+		const pair = await sql<{ n: number }[]>`
+			SELECT
+			  (SELECT count(*)::int FROM services WHERE business_id = ${businessId}
+			     AND name = 'Bloqueio' AND archived_at IS NOT NULL)
+			+ (SELECT count(*)::int FROM clients WHERE business_id = ${businessId}
+			     AND name = '— bloqueio —' AND deleted_at IS NOT NULL) AS n`;
+		expect(pair[0]?.n).toBe(2); // 1 serviço + 1 cliente, nunca duplica
+
+		// oculto: fora das listas e do link público
+		const get = async (path: string) =>
+			(await app.request(path, { headers: { ...h } })).json();
+		const svcs = (await get("/v1/services")) as { name: string; id: string }[];
+		expect(svcs.some((s) => s.id !== serviceId && s.name === "Bloqueio")).toBe(
+			false,
+		);
+		const clis = (await get("/v1/clients")) as { name: string }[];
+		expect(clis.some((c) => c.name === "— bloqueio —")).toBe(false);
+		const [biz] = await sql<{ slug: string }[]>`
+			SELECT slug FROM businesses WHERE id = ${businessId}`;
+		const info = (await (await app.request(`/p/${biz?.slug}/info`)).json()) as {
+			services: { id: string; name: string }[];
+		};
+		expect(
+			info.services.some((s) => s.id !== serviceId && s.name === "Bloqueio"),
+		).toBe(false);
+
+		// e ocupa o horário na agenda com o motivo
+		const list = (await get(
+			`/v1/appointments?from=${dayAt(0).toISOString()}&to=${dayAt(23).toISOString()}`,
+		)) as {
+			appointments: { source: string; canceledReason: string | null }[];
+		};
+		expect(
+			list.appointments.filter(
+				(a) => a.source === "block" && a.canceledReason === "almoço",
+			),
+		).toHaveLength(2);
+	});
 });

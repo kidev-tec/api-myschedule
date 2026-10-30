@@ -31,6 +31,8 @@ function serialize(r: typeof clients.$inferSelect) {
 		nickname: r.nickname,
 		referral_source: r.referralSource,
 		marketing_consent: r.marketingConsent,
+		// 0023: 'public_link' = se cadastrou sozinho no agendamento online
+		origin: r.origin,
 		address: {
 			zip: r.addressZip,
 			street: r.addressStreet,

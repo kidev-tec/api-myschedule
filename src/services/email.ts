@@ -17,8 +17,7 @@ export async function sendEmail(payload: EmailPayload): Promise<void> {
 			);
 			return;
 		}
-		const from =
-			process.env.EMAIL_FROM ?? "Minha Agenda <onboarding@resend.dev>";
+		const from = process.env.EMAIL_FROM ?? "AGENVA <onboarding@resend.dev>";
 		const res = await fetch("https://api.resend.com/emails", {
 			method: "POST",
 			headers: {
@@ -44,8 +43,8 @@ export async function sendEmail(payload: EmailPayload): Promise<void> {
 export function welcomeEmail(name: string): EmailPayload {
 	return {
 		to: "",
-		subject: `Bem-vindo ao Minha Agenda, ${name}!`,
-		html: `<h1>Bem-vindo, ${name}!</h1><p>Tua conta foi criada e teus 15 dias de teste começaram. Qualquer coisa, é só chamar.</p>`,
+		subject: `Bem-vindo ao AGENVA, ${name}!`,
+		html: `<h1>Bem-vindo, ${name}!</h1><p>Sua conta foi criada e seus 15 dias de teste começaram. Se precisar de ajuda, é só nos chamar.</p>`,
 	};
 }
 
@@ -55,11 +54,11 @@ export function trialEndingEmail(name: string, daysLeft: number): EmailPayload {
 		to: "",
 		subject:
 			daysLeft <= 0
-				? `Minha Agenda: teu teste terminou, ${name}`
-				: `Minha Agenda: faltam ${daysLeft} dia${daysLeft === 1 ? "" : "s"} de teste, ${name}`,
-		html: `<p>Olá, ${name}!</p><p>Teu período de teste ${
+				? `AGENVA: seu teste terminou, ${name}`
+				: `AGENVA: faltam ${daysLeft} dia${daysLeft === 1 ? "" : "s"} de teste, ${name}`,
+		html: `<p>Olá, ${name}!</p><p>Seu período de teste ${
 			daysLeft <= 0
-				? "terminou. Assina pra continuar agendando sem interrupção."
+				? "terminou. Assine para continuar agendando sem interrupção."
 				: `termina em <b>${daysLeft} dia${daysLeft === 1 ? "" : "s"}</b>.`
 		}</p>`,
 	};

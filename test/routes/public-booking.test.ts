@@ -201,7 +201,8 @@ describe("RF-07: link público de agendamento", () => {
 			from appointments a join clients c on c.id = a.client_id
 			where a.id = ${booking.id}`;
 		expect(rows[0]!.source).toBe("public_link");
-		expect(rows[0]!.phone_e164).toBe("14998887766");
+		// gravado no padrão do app (55 + DDD + número)
+		expect(rows[0]!.phone_e164).toBe("5514998887766");
 		expect(rows[0]!.client_name).toBe("Cliente Web");
 
 		// ---- mesmo slot de novo → 409
@@ -252,7 +253,7 @@ describe("RF-07: link público de agendamento", () => {
 			where business_id = (select id from businesses where slug = ${slug})
 			and name = 'Cliente Web'`) as unknown as { phone_e164: string }[];
 		expect(ph.length).toBe(1);
-		expect(ph[0]!.phone_e164).toBe("14998887766");
+		expect(ph[0]!.phone_e164).toBe("5514998887766");
 	});
 
 	it("validações: campos ruins, serviço estrangeiro, data passada", async () => {
@@ -299,6 +300,8 @@ describe("RF-07: link público de agendamento", () => {
 		const noStart = { ...ok };
 		delete (noStart as { starts_at?: string }).starts_at;
 		expect((await post(noStart)).status).toBe(400);
+		// SPEC v1.0.0: página pública nunca altera duração do serviço.
+		expect((await post({ ...ok, duration_min: 15 })).status).toBe(400);
 		expect(
 			(
 				await post({
@@ -484,6 +487,33 @@ describe("RF-07: link público de agendamento", () => {
 		expect((await app.request("/p/nao-existe/info")).status).toBe(404);
 	});
 
+	it("formulário: 1. Seus dados primeiro e máscara do WhatsApp", async () => {
+		const res = await app.request("/p/slug-que-nao-existe");
+		const html = await res.text();
+		const dados = html.indexOf("<label>1. Seus dados</label>");
+		const servicos = html.indexOf("<label>2. Escolha o(s) serviço(s)</label>");
+		expect(dados).toBeGreaterThan(0);
+		expect(servicos).toBeGreaterThan(dados);
+		expect(html).toContain('placeholder="Seu nome"');
+		expect(html).not.toContain("Teus dados");
+
+		// máscara: extrai a função do HTML servido e roda de verdade
+		const m = html.match(/function maskPhone\(v\)[\s\S]*?\n}/);
+		expect(m).toBeTruthy();
+		const maskPhone = new Function(`${m?.[0]}; return maskPhone;`)() as (
+			v: string,
+		) => string;
+		expect(maskPhone("")).toBe("");
+		expect(maskPhone("1")).toBe("(1");
+		expect(maskPhone("1198")).toBe("(11) 98");
+		expect(maskPhone("1134567890")).toBe("(11) 3456-7890");
+		expect(maskPhone("11987654321")).toBe("(11) 98765-4321");
+		expect(maskPhone("(11) 98765-43219999")).toBe("(11) 98765-4321");
+		expect(maskPhone("abc11def9")).toBe("(11) 9");
+		expect(maskPhone("+55 11 98765-4321")).toBe("(11) 98765-4321");
+		expect(maskPhone("55991234567")).toBe("(55) 99123-4567");
+	});
+
 	it("B1: paridade — slotStillValid inline no HTML ≡ função pura do domínio", async () => {
 		// 1. HTML servido contém a cópia inline
 		const res = await app.request("/p/slug-que-nao-existe");
@@ -576,6 +606,45 @@ describe("RF-07: link público de agendamento", () => {
 				},
 				false,
 			],
+			[
+				"0020: folga invade o próximo agendamento → inválido",
+				{
+					picked: new Date("2026-10-22T09:30:00"),
+					day,
+					durationMin: 25,
+					workingHours: whThu,
+					busy: busy10,
+					now,
+					bufferMin: 10,
+				},
+				false,
+			],
+			[
+				"0020: atendimento + folga encostam no próximo → válido",
+				{
+					picked: new Date("2026-10-22T09:30:00"),
+					day,
+					durationMin: 20,
+					workingHours: whThu,
+					busy: busy10,
+					now,
+					bufferMin: 10,
+				},
+				true,
+			],
+			[
+				"0020: folga pode passar do fechamento → válido",
+				{
+					picked: new Date("2026-10-22T17:30:00"),
+					day,
+					durationMin: 30,
+					workingHours: whThu,
+					busy: [],
+					now,
+					bufferMin: 15,
+				},
+				true,
+			],
 		];
 		for (const [name, input, expected] of cases) {
 			// função pura (TS, testada direto)
@@ -589,6 +658,7 @@ describe("RF-07: link público de agendamento", () => {
 					input.workingHours,
 					input.busy,
 					input.now,
+					input.bufferMin,
 				),
 				`inline: ${name}`,
 			).toBe(expected);

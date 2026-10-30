@@ -13,7 +13,18 @@
  * responde 402 no book (leitura/info continua livre).
  */
 
-import { and, eq, gt, gte, isNull, lt, lte, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	eq,
+	gt,
+	gte,
+	inArray,
+	isNull,
+	lt,
+	lte,
+	sql,
+} from "drizzle-orm";
 import { Hono } from "hono";
 import { type Db, getDb } from "../db/connection.js";
 import {
@@ -27,7 +38,10 @@ import {
 } from "../db/schema.js";
 import { overlaps } from "../domain/booking.js";
 import { verifyConfirmationToken } from "../domain/confirmation-token.js";
-import { sendToUser } from "../services/fcm.js";
+import { occupiedEnd } from "../domain/duration.js";
+import { phoneDigitsBr, phoneMatchKeys } from "../domain/phone-br.js";
+import { kitItemsFor, resolveCombo } from "../domain/service-kits.js";
+import { notify } from "../services/notify.js";
 
 function isUuid(v: unknown): v is string {
 	return (
@@ -87,6 +101,8 @@ function infoJson(
 			name: loaded.biz.name,
 			business_type: loaded.biz.businessType,
 			timezone: loaded.biz.timezone,
+			// 0020: folga após cada atendimento — a grade de slots soma isso
+			buffer_min: loaded.biz.bufferMin,
 			// endereço (F1): onde o atendimento acontece — cada campo pode ser
 			// null (business sem endereço cadastrado não exibe a linha)
 			address: {
@@ -120,6 +136,7 @@ export function publicBookingRoutes(databaseUrl: string) {
 				name: services.name,
 				duration_min: services.durationMin,
 				price_cents: services.priceCents,
+				is_kit: services.isKit,
 			})
 			.from(services)
 			.where(
@@ -128,6 +145,11 @@ export function publicBookingRoutes(databaseUrl: string) {
 					isNull(services.archivedAt),
 				),
 			);
+		// 0021: kit mostra o que inclui ("Corte + Barba")
+		const kitItems = await kitItemsFor(
+			db,
+			svc.filter((s) => s.is_kit).map((s) => s.id),
+		);
 		const hours = await db
 			.select({
 				weekday: workingHours.weekday,
@@ -137,7 +159,27 @@ export function publicBookingRoutes(databaseUrl: string) {
 			.from(workingHours)
 			.where(eq(workingHours.userId, loaded.pro.id));
 
-		return c.json(infoJson(loaded, svc, hours));
+		return c.json(
+			infoJson(
+				loaded,
+				svc.map((s) =>
+					s.is_kit
+						? {
+								...s,
+								/* v8 ignore next -- kitItemsFor devolve lista p/ todo kit */
+								items: (kitItems.get(s.id) ?? []).map((i) => i.name),
+								// soma dos itens: > price_cents = kit com desconto
+								/* v8 ignore next -- kitItemsFor devolve lista p/ todo kit */
+								items_total_cents: (kitItems.get(s.id) ?? []).reduce(
+									(a, i) => a + i.price_cents,
+									0,
+								),
+							}
+						: s,
+				),
+				hours,
+			),
+		);
 	});
 
 	// ---- booking público
@@ -163,8 +205,17 @@ export function publicBookingRoutes(databaseUrl: string) {
 			name?: unknown;
 			phone?: unknown;
 			service_id?: unknown;
+			service_ids?: unknown;
 			starts_at?: unknown;
+			duration_min?: unknown;
 		} | null;
+		// Público deriva estritamente do serviço: não aceita override de duração.
+		if (body?.duration_min !== undefined) {
+			return c.json(
+				{ error: "duration_min não é permitido no agendamento público" },
+				400,
+			);
+		}
 		const name =
 			typeof body?.name === "string" ? body.name.trim().slice(0, 120) : "";
 		const phone =
@@ -176,23 +227,38 @@ export function publicBookingRoutes(databaseUrl: string) {
 				400,
 			);
 		}
-		if (typeof body?.service_id !== "string" || !isUuid(body.service_id)) {
-			return c.json({ error: "escolha um serviço" }, 400);
+		// 0022: vários serviços (service_ids 2+) viram um horário só "A + B"
+		let svc: { id: string; name: string; durationMin: number } | undefined;
+		if (Array.isArray(body?.service_ids) && body.service_ids.length > 1) {
+			const combo = await resolveCombo(db, loaded.biz.id, body.service_ids);
+			if ("error" in combo) return c.json({ error: combo.error }, 400);
+			svc = {
+				id: combo.serviceId,
+				name: combo.name,
+				durationMin: combo.durationMin,
+			};
+		} else {
+			const oneId = Array.isArray(body?.service_ids)
+				? body.service_ids[0]
+				: body?.service_id;
+			if (typeof oneId !== "string" || !isUuid(oneId)) {
+				return c.json({ error: "escolha um serviço" }, 400);
+			}
+			svc = (
+				await db
+					.select()
+					.from(services)
+					.where(
+						and(
+							eq(services.id, oneId),
+							eq(services.businessId, loaded.biz.id),
+							isNull(services.archivedAt),
+						),
+					)
+					.limit(1)
+			)[0];
+			if (!svc) return c.json({ error: "serviço indisponível" }, 400);
 		}
-		const svc = (
-			await db
-				.select()
-				.from(services)
-				.where(
-					and(
-						eq(services.id, body.service_id),
-						eq(services.businessId, loaded.biz.id),
-						isNull(services.archivedAt),
-					),
-				)
-				.limit(1)
-		)[0];
-		if (!svc) return c.json({ error: "serviço indisponível" }, 400);
 
 		const startsAtRaw = body?.starts_at;
 		const start = new Date(
@@ -205,10 +271,17 @@ export function publicBookingRoutes(databaseUrl: string) {
 			return c.json({ error: "escolha um horário no futuro" }, 400);
 		}
 		const end = new Date(start.getTime() + svc.durationMin * 60_000);
+		// 0020: link público sempre usa a folga padrão do negócio
+		const bufferMin = loaded.biz.bufferMin;
+		const busyUntil = occupiedEnd(end, bufferMin);
 
-		// conflito (mesma semântica do CRUD autenticado)
+		// conflito (mesma semântica do CRUD autenticado): [início, fim + folga)
 		const existing = await db
-			.select({ startsAt: appointments.startsAt, endsAt: appointments.endsAt })
+			.select({
+				startsAt: appointments.startsAt,
+				endsAt: appointments.endsAt,
+				bufferMin: appointments.bufferMin,
+			})
 			.from(appointments)
 			.where(
 				and(
@@ -218,12 +291,22 @@ export function publicBookingRoutes(databaseUrl: string) {
 				),
 			);
 		for (const row of existing) {
-			if (overlaps(row.startsAt, row.endsAt, start, end)) {
+			if (
+				overlaps(
+					row.startsAt,
+					occupiedEnd(row.endsAt, row.bufferMin),
+					start,
+					busyUntil,
+				)
+			) {
 				return c.json({ error: "esse horário acabou de ser ocupado" }, 409);
 			}
 		}
 
-		// find-or-create client por telefone (E.164-ish)
+		// Cliente já cadastrado? Procura pelo celular (só dígitos, com ou sem
+		// o 55) entre os ativos — mantém o cadastro e o nome que já existem.
+		// Sem cadastro: cria só com nome + celular, marcado como vindo do
+		// link (o app mostra pra o prestador pedir o cadastro completo).
 		let client = (
 			await db
 				.select()
@@ -231,9 +314,14 @@ export function publicBookingRoutes(databaseUrl: string) {
 				.where(
 					and(
 						eq(clients.businessId, loaded.biz.id),
-						eq(clients.phoneE164, phone),
+						isNull(clients.deletedAt),
+						inArray(
+							sql`regexp_replace(${clients.phoneE164}, '[^0-9]', '', 'g')`,
+							phoneMatchKeys(phone),
+						),
 					),
 				)
+				.orderBy(asc(clients.createdAt))
 				.limit(1)
 		)[0];
 		if (!client) {
@@ -243,7 +331,8 @@ export function publicBookingRoutes(databaseUrl: string) {
 					.values({
 						businessId: loaded.biz.id,
 						name,
-						phoneE164: phone,
+						phoneE164: phoneDigitsBr(phone),
+						origin: "public_link",
 					})
 					.returning()
 			)[0];
@@ -260,6 +349,7 @@ export function publicBookingRoutes(databaseUrl: string) {
 				userId: loaded.pro.id,
 				startsAt: start,
 				endsAt: end,
+				bufferMin,
 				status: "pending",
 				source: "public_link",
 			})
@@ -278,17 +368,17 @@ export function publicBookingRoutes(databaseUrl: string) {
 			// fuso do NEGÓCIO — o servidor roda em UTC em produção
 			timeZone: loaded.biz.timezone,
 		});
-		sendToUser(
-			databaseUrl,
-			loaded.pro.id,
-			"Novo agendamento",
-			`${client.name} — ${svc.name} em ${when}`,
-			{
-				type: "new_booking",
+		// guarda na central (sino) + push — notify nunca lança
+		void notify(databaseUrl, {
+			userId: loaded.pro.id,
+			type: "new_booking",
+			title: "Novo agendamento",
+			body: `${client.name} — ${svc.name} em ${when}`,
+			data: {
 				appointment_id: created.id,
 				starts_at: created.startsAt.toISOString(),
 			},
-		).catch(/* v8 ignore next -- best-effort FCM */ () => {});
+		});
 
 		return c.json(
 			{
@@ -332,7 +422,11 @@ export function publicBookingRoutes(databaseUrl: string) {
 			);
 
 		const rows = await db
-			.select({ startsAt: appointments.startsAt, endsAt: appointments.endsAt })
+			.select({
+				startsAt: appointments.startsAt,
+				endsAt: appointments.endsAt,
+				bufferMin: appointments.bufferMin,
+			})
 			.from(appointments)
 			.where(
 				and(
@@ -345,9 +439,11 @@ export function publicBookingRoutes(databaseUrl: string) {
 			);
 		return c.json({
 			busy: [
+				// end inclui a folga do agendamento (período em que o
+				// profissional não pode começar outro atendimento)
 				...rows.map((r) => ({
 					start: r.startsAt.toISOString(),
-					end: r.endsAt.toISOString(),
+					end: occupiedEnd(r.endsAt, r.bufferMin).toISOString(),
 				})),
 				// bloqueios vão com flag pra o cliente ver "indisponível"
 				...timeOffs.map((t) => ({
@@ -403,7 +499,7 @@ export function publicBookingRoutes(databaseUrl: string) {
 		const ics = [
 			"BEGIN:VCALENDAR",
 			"VERSION:2.0",
-			"PRODID:-//Minha Agenda//PT-BR",
+			"PRODID:-//AGENVA//PT-BR",
 			"BEGIN:VEVENT",
 			`UID:${appt.id}`,
 			`DTSTAMP:${fmt(new Date())}`,
@@ -526,17 +622,23 @@ export function publicBookingRoutes(databaseUrl: string) {
 				decide === "confirm"
 					? `${clientName} confirmou presença em ${when}.`
 					: `${clientName} não vai poder em ${when}. Horário vagou!`;
-			void sendToUser(databaseUrl, loaded.pro.id, title, bodyMsg).catch(
-				/* v8 ignore next -- sendToUser nunca rejeita; defesa de contrato */
-				() => undefined,
-			);
+			void notify(databaseUrl, {
+				userId: loaded.pro.id,
+				type: decide === "confirm" ? "client_confirmed" : "client_canceled",
+				title,
+				body: bodyMsg,
+				data: {
+					appointment_id: appointmentId,
+					starts_at: new Date(appt.startsAt).toISOString(),
+				},
+			});
 		}
 
 		return c.json({
 			status: decide === "confirm" ? "confirmed" : "canceled",
 			message:
 				decide === "confirm"
-					? "Presença confirmada! Te esperamos."
+					? "Presença confirmada! Esperamos você."
 					: "Tudo certo, horário liberado.",
 		});
 	});
@@ -620,10 +722,24 @@ button:disabled{opacity:.5}
 <div id="app"><h1>Carregando…</h1></div>
 <script>
 const SLUG = "${s}";
+// Máscara de telefone BR enquanto digita (a API guarda só os dígitos).
+// Teste em test/routes/public-booking.test.ts extrai e roda esta função.
+function maskPhone(v){
+  let d = String(v).replace(/\\D/g,'');
+  // colou com DDI (+55 11 9...): tira o 55; com 11 dígitos 55 é DDD (RS)
+  if(d.length > 11 && d.startsWith('55')) d = d.slice(2);
+  d = d.slice(0,11);
+  if(d.length <= 2) return d.length ? '('+d : '';
+  if(d.length <= 6) return '('+d.slice(0,2)+') '+d.slice(2);
+  if(d.length <= 10) return '('+d.slice(0,2)+') '+d.slice(2,6)+'-'+d.slice(6);
+  return '('+d.slice(0,2)+') '+d.slice(2,7)+'-'+d.slice(7);
+}
+// nomes vêm do cadastro do prestador: escapa antes de pôr no HTML
+const esc = v => String(v).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch]);
 // B1: cópia JS de slotStillValid (src/domain/public-booking-ui.ts) — o HTML
 // não importa módulos. Teste de paridade em test/routes/public-booking.test.ts
 // extrai isto do HTML servido e compara com a função pura: drift quebra CI.
-function slotStillValid(picked, day, durationMin, workingHours, busy, now){
+function slotStillValid(picked, day, durationMin, workingHours, busy, now, bufferMin){
   if(picked.getTime() <= now.getTime()) return false;
   const wd = day.getDay();
   const h = workingHours.find(x=>x.weekday===wd);
@@ -633,13 +749,16 @@ function slotStillValid(picked, day, durationMin, workingHours, busy, now){
   const openMin = sh*60+sm, closeMin = eh*60;
   const startMin = picked.getHours()*60+picked.getMinutes();
   if(startMin < openMin || startMin+durationMin > closeMin) return false;
-  const startMs = picked.getTime(), endMs = startMs + durationMin*60000;
+  const startMs = picked.getTime(), endMs = startMs + (durationMin+(bufferMin||0))*60000;
   return !busy.some(b => startMs < new Date(b.end).getTime() && endMs > new Date(b.start).getTime());
 }
 document.documentElement.style.setProperty('--p', "${pal.p}");
 document.documentElement.style.setProperty('--selBg', "${pal.selBg}");
 const app = document.getElementById('app');
-let INFO = null, SEL = null, DAY = null;
+// SEL = ids escolhidos (vários serviços num horário só; kit vai sozinho)
+let INFO = null, SEL = [], DAY = null;
+const selSvcs = () => SEL.map(id => INFO.services.find(x=>x.id===id)).filter(Boolean);
+const selDur = () => selSvcs().reduce((a,s)=>a+s.duration_min,0) || 30;
 
 init();
 async function init(){
@@ -661,7 +780,7 @@ function gcalUrl(appt){
     action: 'TEMPLATE',
     text: \`\${appt.service} em \${appt.business}\`,
     dates: \`\${toGcalDate(new Date(appt.starts_at))}/\${toGcalDate(new Date(appt.ends_at))}\`,
-    details: 'Agendamento feito pelo link da Minha Agenda'
+    details: 'Agendamento feito pelo link do AGENVA'
   });
   return 'https://calendar.google.com/calendar/render?' + p.toString();
 }
@@ -680,7 +799,7 @@ function renderForm(msg){
   }
   app.innerHTML = \`
     <h1>\${INFO.business.name}</h1>
-    <p class="mut">com \${INFO.professional.name} · agende teu horário</p>
+    <p class="mut">com \${INFO.professional.name} · agende seu horário</p>
     \${INFO.business.address && INFO.business.address.street ? \`
     <p class="mut" id="biz-address">📍 \${[
       INFO.business.address.street,
@@ -691,23 +810,26 @@ function renderForm(msg){
     ].filter(Boolean).join(', ')}\${INFO.business.address.zip ? ' · CEP ' + INFO.business.address.zip : ''}</p>\` : ''}
     <div class="err" id="err"></div>
     <div class="card">
-      <label>1. Escolhe o serviço</label>
-      \${INFO.services.map(s=>\`<div class="svc\${SEL===s.id?' sel':''}" onclick="pick('\${s.id}')">
-        <span>\${s.name} · \${s.duration_min}min</span><b>\${brl(s.price_cents)}</b></div>\`).join('')}
-      <label>2. Teus dados</label>
-      <input id="nm" placeholder="Teu nome" value="\${NAME_DRAFT}">
+      <label>1. Seus dados</label>
+      <input id="nm" placeholder="Seu nome" value="\${NAME_DRAFT}">
       <input id="ph" placeholder="WhatsApp (com DDD)" inputmode="tel" style="margin-top:8px" value="\${PHONE_DRAFT}">
-      <label>3. Escolhe o dia</label>
+      <label>2. Escolha o(s) serviço(s)</label>
+      <p class="mut" style="margin:0 0 4px">Pode marcar mais de um — todos ficam no mesmo horário.</p>
+      \${INFO.services.map(s=>\`<div class="svc\${SEL.includes(s.id)?' sel':''}" onclick="pick('\${s.id}')">
+        <span>\${esc(s.name)} · \${s.duration_min}min\${s.items&&s.items.length?'<br><small class="mut">Kit: '+s.items.map(esc).join(' + ')+'</small>':''}</span><b>\${s.items_total_cents>s.price_cents?'<s class="mut">'+brl(s.items_total_cents)+'</s> ':''}\${brl(s.price_cents)}</b></div>\`).join('')}
+      \${SEL.length>1?\`<p id="sel-total"><b>\${SEL.length} serviços · \${selDur()} min · \${brl(selSvcs().reduce((a,s)=>a+s.price_cents,0))}</b></p>\`:''}
+      <label>3. Escolha o dia</label>
       <div class="slots" id="days"></div>
       <label>4. Horários livres (\${DAY?DAY.toLocaleDateString('pt-BR'):'—'})</label>
-      <div class="slots" id="slots"><span class="mut">escolhe um dia acima</span></div>
+      <div class="slots" id="slots"><span class="mut">escolha um dia acima</span></div>
       <button id="go" onclick="book()">Confirmar agendamento</button>
     </div>\`;
   // mantém o que estava digitado a cada re-render
   const nm = document.getElementById('nm');
   const ph = document.getElementById('ph');
   nm.addEventListener('input', () => { NAME_DRAFT = nm.value; });
-  ph.addEventListener('input', () => { PHONE_DRAFT = ph.value; });
+  // máscara do WhatsApp: (11) 98765-4321 / (11) 3456-7890
+  ph.addEventListener('input', () => { ph.value = maskPhone(ph.value); PHONE_DRAFT = ph.value; });
 
   const dw = document.getElementById('days');
   days.forEach(d=>{
@@ -724,11 +846,21 @@ function renderForm(msg){
 // Re-render de erro NÃO perde o horário escolhido. Ao trocar serviço, a
 // lista recalcula conflitos/duração do NOVO serviço e só limpa se o slot cair.
 let PICKED_KEEP = false;
-window.pick = id => { SEL=id; PICKED_KEEP=!!window.PICKED; renderForm(); };
+// avulso: marca/desmarca (vários); kit: vai sozinho (não soma com outros)
+window.pick = id => {
+  const s = INFO.services.find(x=>x.id===id);
+  const isKit = x => x && x.items && x.items.length;
+  if(isKit(s)){ SEL = SEL.includes(id) ? [] : [id]; }
+  else {
+    SEL = SEL.filter(x => !isKit(INFO.services.find(y=>y.id===x)));
+    SEL = SEL.includes(id) ? SEL.filter(x=>x!==id) : [...SEL, id];
+  }
+  PICKED_KEEP=!!window.PICKED; renderForm();
+};
 
 async function loadSlots(keepPicked){
-  // slots de 15min entre abrir/fechar do dia, já filtrando ocupados pela
-  // duração do serviço escolhido (GET /p/:slug/busy)
+  // slots de 10min entre abrir/fechar do dia, já filtrando ocupados pela
+  // duração do serviço escolhido + folga do negócio (GET /p/:slug/busy)
   const slots = document.getElementById('slots');
   slots.innerHTML = '<span class="mut">carregando…</span>';
   const wd = DAY.getDay();
@@ -737,13 +869,13 @@ async function loadSlots(keepPicked){
   const [sh,sm] = h.start_time.split(':').map(Number);
   const [eh] = h.end_time.split(':').map(Number);
   const out=[];
-  for(let m=sh*60+sm; m<eh*60; m+=15){
+  for(let m=sh*60+sm; m<eh*60; m+=10){
     const d = new Date(DAY); d.setHours(Math.floor(m/60), m%60, 0, 0);
     if(d > new Date()) out.push(d);
   }
-  // duração do serviço selecionado (fallback 30min se ainda não escolheu)
-  const svc = INFO.services.find(x=>x.id===SEL);
-  const dur = (svc?svc.duration_min:30) * 60000;
+  // duração somada dos serviços escolhidos (fallback 30min sem escolha)
+  const dur = selDur() * 60000;
+  const buf = (INFO.business.buffer_min||0) * 60000;
   let busy = [];
   try{
     const ds = DAY.getFullYear()+'-'+String(DAY.getMonth()+1).padStart(2,'0')+'-'+String(DAY.getDate()).padStart(2,'0');
@@ -752,7 +884,7 @@ async function loadSlots(keepPicked){
   }catch(e){}
   const conflicts = d => busy.some(b =>
     d.getTime() < new Date(b.end).getTime() &&
-    d.getTime()+dur > new Date(b.start).getTime());
+    d.getTime()+dur+buf > new Date(b.start).getTime());
   slots.innerHTML='';
   out.forEach(d=>{
     const el=document.createElement('div'); el.className='slot';
@@ -768,8 +900,7 @@ async function loadSlots(keepPicked){
   });
   // slot escolhido virou indisponível (trocou serviço / foi ocupado)
   if(window.PICKED){
-    const svc2 = INFO.services.find(x=>x.id===SEL);
-    const still = slotStillValid(window.PICKED, DAY, svc2?svc2.duration_min:30, INFO.working_hours, busy, new Date());
+    const still = slotStillValid(window.PICKED, DAY, selDur(), INFO.working_hours, busy, new Date(), INFO.business.buffer_min||0);
     if(!still){
       window.PICKED = null;
       const err=document.getElementById('err');
@@ -778,7 +909,7 @@ async function loadSlots(keepPicked){
     }
   }
   if(out.length>0 && out.every(d=>conflicts(d))){
-    slots.innerHTML='<span class="mut">sem horários livres pra este serviço neste dia — escolhe outro dia ou serviço</span>';
+    slots.innerHTML='<span class="mut">sem horários livres para este serviço neste dia — escolha outro dia ou serviço</span>';
   }
 }
 
@@ -786,13 +917,14 @@ async function book(){
   const nm=document.getElementById('nm').value.trim();
   const ph=document.getElementById('ph').value.trim();
   const e=document.getElementById('err');
-  if(!SEL){ e.textContent='escolhe um serviço'; e.style.display='block'; return; }
-  if(!window.PICKED){ e.textContent='escolhe um horário'; e.style.display='block'; return; }
+  if(!SEL.length){ e.textContent='escolha um serviço'; e.style.display='block'; return; }
+  if(!window.PICKED){ e.textContent='escolha um horário'; e.style.display='block'; return; }
   const btn=document.getElementById('go'); btn.disabled=true;
   try{
     const r = await fetch('/p/'+SLUG+'/book',{
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ name:nm, phone:ph, service_id:SEL, starts_at:window.PICKED.toISOString() })
+      body: JSON.stringify(Object.assign({ name:nm, phone:ph, starts_at:window.PICKED.toISOString() },
+        SEL.length>1 ? { service_ids: SEL } : { service_id: SEL[0] }))
     });
     const d = await r.json();
     if(!r.ok){
@@ -814,11 +946,11 @@ async function book(){
         <a class="ics-btn" href="/p/\${SLUG}/ics/\${d.id}">📅 Salvar no meu celular</a>
         <a class="ics-btn gcal" target="_blank" href="\${gcalUrl(d)}">🗓️ Adicionar ao Google Calendar</a>
       </div>
-      <p class="mut" style="margin-top:10px">Toque acima pra teu celular te lembrar do horário. Te esperamos! 😉</p></div>\`;
+      <p class="mut" style="margin-top:10px">Toque acima para o seu celular lembrar você do horário. Esperamos você! 😉</p></div>\`;
   }catch(err){
     btn.disabled=false;
     const e=document.getElementById('err');
-    e.textContent='sem conexão, tenta de novo';
+    e.textContent='sem conexão, tente novamente';
     e.style.display='block';
   }
 }

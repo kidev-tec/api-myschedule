@@ -1,5 +1,5 @@
 /**
- * OpenAPI 3.1 — Minha Agenda API
+ * OpenAPI 3.1 — AGENVA API
  *
  * Escrito à mão de propósito: as rotas usam validação manual (sem
  * zod-openapi), e refatorar 27 rotas pra gerar spec automática não vale o
@@ -9,10 +9,10 @@
 export const openApiSpec = {
 	openapi: "3.1.0",
 	info: {
-		title: "Minha Agenda API",
+		title: "AGENVA API",
 		version: "1.0.0",
 		description:
-			"API do Minha Agenda — agendamento para prestadores de serviço " +
+			"API do AGENVA — agendamento para prestadores de serviço " +
 			"(beleza, saúde, etc). Autenticação via Firebase ID token " +
 			"(Authorization: Bearer). Paywall: rotas de escrita exigem assinatura " +
 			"trial/active (402 quando expira). Link público /p/:slug é anônimo.",
@@ -612,7 +612,7 @@ export const openApiSpec = {
 				description:
 					"Troca code por refresh token e salva no business. state = firebaseUid.",
 				responses: {
-					"302": { description: "Redirect pra página de resultado" },
+					"302": { description: "Redirect para a página de resultado" },
 				},
 			},
 		},

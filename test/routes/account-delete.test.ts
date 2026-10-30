@@ -91,6 +91,32 @@ describe("DELETE /v1/auth/account", () => {
 		});
 		expect(svc.status).toBe(201);
 		const svcBody = (await svc.json()) as { id: string };
+		// kit (0021) + notificação (0024): a exclusão também tem que limpar
+		const barba = (await (
+			await app.request("/v1/services", {
+				method: "POST",
+				headers: { "content-type": "application/json", ...h },
+				body: JSON.stringify({
+					name: "Barba",
+					duration_min: 20,
+					price_cents: 3000,
+				}),
+			})
+		).json()) as { id: string };
+		const kit = await app.request("/v1/services", {
+			method: "POST",
+			headers: { "content-type": "application/json", ...h },
+			body: JSON.stringify({
+				name: "Combo",
+				duration_min: 50,
+				price_cents: 7000,
+				items: [svcBody.id, barba.id],
+			}),
+		});
+		expect(kit.status).toBe(201);
+		await sql`
+      INSERT INTO notifications (business_id, user_id, type, title)
+      VALUES (${bizId}, (SELECT id FROM users WHERE firebase_uid = ${u}), 'reminder', 'x')`;
 		const cli = await sql`
       INSERT INTO clients (business_id, name, phone_e164) VALUES (${bizId}, 'Ana', '+5511999000111') RETURNING id`;
 		const cliId = (cli[0] as { id: string }).id;
