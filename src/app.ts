@@ -19,6 +19,7 @@ import {
 	internalRoutes,
 	logoRoutes,
 } from "./routes/infrastructure.js";
+import { notificationRoutes } from "./routes/notifications.js";
 import { publicBookingRoutes } from "./routes/public-booking.js";
 import { schoolRoutes } from "./routes/school.js";
 import { meRoutes, servicesRoutes } from "./routes/services.js";
@@ -78,6 +79,9 @@ export function createApp(opts: {
 		// updater: público, sem authUser (HEAD do APK também passa)
 		"/v1/version",
 		"/v1/apks/",
+		// marcar notificação como lida não é escrita do negócio: o sino
+		// segue funcionando com a conta vencida
+		"/v1/notifications",
 	];
 	app.use("/v1/*", async (c, next) => {
 		if (
@@ -97,6 +101,7 @@ export function createApp(opts: {
 	app.route("/v1", waitlistRoutes(opts.databaseUrl));
 	app.route("/v1", workingHoursRoutes(opts.databaseUrl));
 	app.route("/v1", clientsRoutes(opts.databaseUrl));
+	app.route("/v1", notificationRoutes(opts.databaseUrl));
 	app.route("/v1/appointments", appointmentRoutes(opts.databaseUrl));
 
 	// Logo pública (sem auth — o link de agendamento usa) + rotas internas

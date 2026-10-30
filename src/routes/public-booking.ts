@@ -41,7 +41,7 @@ import { verifyConfirmationToken } from "../domain/confirmation-token.js";
 import { occupiedEnd } from "../domain/duration.js";
 import { phoneDigitsBr, phoneMatchKeys } from "../domain/phone-br.js";
 import { kitItemsFor, resolveCombo } from "../domain/service-kits.js";
-import { sendToUser } from "../services/fcm.js";
+import { notify } from "../services/notify.js";
 
 function isUuid(v: unknown): v is string {
 	return (
@@ -368,17 +368,17 @@ export function publicBookingRoutes(databaseUrl: string) {
 			// fuso do NEGÓCIO — o servidor roda em UTC em produção
 			timeZone: loaded.biz.timezone,
 		});
-		sendToUser(
-			databaseUrl,
-			loaded.pro.id,
-			"Novo agendamento",
-			`${client.name} — ${svc.name} em ${when}`,
-			{
-				type: "new_booking",
+		// guarda na central (sino) + push — notify nunca lança
+		void notify(databaseUrl, {
+			userId: loaded.pro.id,
+			type: "new_booking",
+			title: "Novo agendamento",
+			body: `${client.name} — ${svc.name} em ${when}`,
+			data: {
 				appointment_id: created.id,
 				starts_at: created.startsAt.toISOString(),
 			},
-		).catch(/* v8 ignore next -- best-effort FCM */ () => {});
+		});
 
 		return c.json(
 			{
@@ -622,10 +622,16 @@ export function publicBookingRoutes(databaseUrl: string) {
 				decide === "confirm"
 					? `${clientName} confirmou presença em ${when}.`
 					: `${clientName} não vai poder em ${when}. Horário vagou!`;
-			void sendToUser(databaseUrl, loaded.pro.id, title, bodyMsg).catch(
-				/* v8 ignore next -- sendToUser nunca rejeita; defesa de contrato */
-				() => undefined,
-			);
+			void notify(databaseUrl, {
+				userId: loaded.pro.id,
+				type: decide === "confirm" ? "client_confirmed" : "client_canceled",
+				title,
+				body: bodyMsg,
+				data: {
+					appointment_id: appointmentId,
+					starts_at: new Date(appt.startsAt).toISOString(),
+				},
+			});
 		}
 
 		return c.json({

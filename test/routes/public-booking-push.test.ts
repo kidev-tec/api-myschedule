@@ -108,7 +108,8 @@ describe("push de novo agendamento pelo link público", () => {
 		expect(res.status).toBe(201);
 		const { id } = (await res.json()) as { id: string };
 
-		expect(sendToUserMock).toHaveBeenCalledTimes(1);
+		// notify() guarda a notificação antes do push (assíncrono, fora da resposta)
+		await vi.waitFor(() => expect(sendToUserMock).toHaveBeenCalledTimes(1));
 		const [, userId, title, body, data] = sendToUserMock.mock.calls[0] ?? [];
 		expect(userId).toBe(pro.id);
 		expect(title).toBe("Novo agendamento");
@@ -119,6 +120,7 @@ describe("push de novo agendamento pelo link público", () => {
 			type: "new_booking",
 			appointment_id: id,
 			starts_at: start.toISOString(),
+			notification_id: expect.any(String),
 		});
 	});
 });

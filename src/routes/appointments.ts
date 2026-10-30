@@ -33,7 +33,7 @@ import {
 import { mirrorToCalendar } from "../domain/gcal-mirror.js";
 import { startsOnOrBeforeToday } from "../domain/schedule-day.js";
 import { resolveCombo } from "../domain/service-kits.js";
-import { sendToUser } from "../services/fcm.js";
+import { notify } from "../services/notify.js";
 import type { AppEnv } from "../types.js";
 
 async function requireUser(db: Db, firebaseUid: string) {
@@ -878,12 +878,13 @@ export function appointmentRoutes(databaseUrl: string) {
 						);
 					const n = waiting[0]?.n ?? 0;
 					if (n > 0) {
-						sendToUser(
-							databaseUrl,
-							user.id,
-							"Vaga abriu — lista de espera",
-							`${n} cliente${n > 1 ? "s" : ""} na espera pra esse dia. Abre a lista de espera pra avisar.`,
-						).catch(() => undefined);
+						void notify(databaseUrl, {
+							userId: user.id,
+							type: "waitlist",
+							title: "Vaga abriu — lista de espera",
+							body: `${n} cliente${n > 1 ? "s" : ""} na espera pra esse dia. Abre a lista de espera pra avisar.`,
+							data: { date: dayStr },
+						});
 					}
 				}
 			}

@@ -19,6 +19,7 @@ import {
 	date,
 	index,
 	integer,
+	jsonb,
 	pgEnum,
 	pgTable,
 	primaryKey,
@@ -423,3 +424,29 @@ export const deviceTokens = pgTable("device_tokens", {
 		.notNull()
 		.defaultNow(),
 });
+
+/**
+ * 0024: central de notificações — todo push pro prestador fica guardado
+ * (sino + lista no app). read_at NULL = não lida.
+ */
+export const notifications = pgTable(
+	"notifications",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		businessId: uuid("business_id")
+			.notNull()
+			.references(() => businesses.id, { onDelete: "cascade" }),
+		userId: uuid("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		type: varchar("type", { length: 30 }).notNull(),
+		title: varchar("title", { length: 200 }).notNull(),
+		body: text("body").notNull().default(""),
+		data: jsonb("data").$type<Record<string, string>>(),
+		readAt: timestamp("read_at", { withTimezone: true }),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+	},
+	(t) => [index("notifications_user_created_idx").on(t.userId, t.createdAt)],
+);
