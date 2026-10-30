@@ -267,4 +267,130 @@ describe("kits de serviço", () => {
 		expect(html).toContain("s.items.map(esc)");
 		expect(html).toContain("s.items_total_cents>s.price_cents");
 	});
+
+	it("vários serviços num horário só: kit oculto reaproveitado (app e link)", async () => {
+		const a = await svc("Barba C", 20, 3000);
+		const b = await svc("Corte C", 30, 5000);
+		const k = (await (await kit("Kit C", [a.id, b.id])).json()) as Svc;
+		const [client] = await sql<{ id: string }[]>`
+      INSERT INTO clients (business_id, name, phone_e164)
+      SELECT business_id, 'Cli Combo', ${`+55118${String(seq).padStart(8, "0")}`}
+      FROM users WHERE firebase_uid = ${h.Authorization?.slice(7) ?? ""} RETURNING id`;
+		const post = (startsAt: string, serviceIds: unknown, dur = 50) =>
+			req("POST", "/v1/appointments", {
+				clientId: client?.id,
+				serviceIds,
+				startsAt,
+				duration_min: dur,
+			});
+
+		// app: 2 serviços → 1 agendamento "Barba C + Corte C"
+		const r1 = await post("2026-11-02T15:00:00.000Z", [a.id, b.id]);
+		expect(r1.status).toBe(201);
+		const ap1 = (await r1.json()) as { appointment: { serviceId: string } };
+		const [combo] = await sql<
+			{
+				name: string;
+				duration_min: number;
+				price_cents: number;
+				adhoc: boolean;
+				archived_at: Date | null;
+			}[]
+		>`SELECT name, duration_min, price_cents, adhoc, archived_at FROM services WHERE id = ${ap1.appointment.serviceId}`;
+		expect(combo?.name).toBe("Barba C + Corte C");
+		expect(combo?.duration_min).toBe(50);
+		expect(combo?.price_cents).toBe(8000);
+		expect(combo?.adhoc).toBe(true);
+		expect(combo?.archived_at).not.toBeNull(); // oculto das listas
+
+		// mesma combinação reaproveita (e atualiza preço atual)
+		await req("PATCH", `/v1/services/${a.id}`, { price_cents: 3500 });
+		const r2 = await post("2026-11-02T17:00:00.000Z", [a.id, b.id]);
+		const ap2 = (await r2.json()) as { appointment: { serviceId: string } };
+		expect(ap2.appointment.serviceId).toBe(ap1.appointment.serviceId);
+		const [upd] = await sql<{ price_cents: number }[]>`
+      SELECT price_cents FROM services WHERE id = ${ap2.appointment.serviceId}`;
+		expect(upd?.price_cents).toBe(8500);
+		// ordem diferente = outra combinação (nome "Corte C + Barba C")
+		const r3 = await post("2026-11-02T19:00:00.000Z", [b.id, a.id]);
+		const ap3 = (await r3.json()) as { appointment: { serviceId: string } };
+		expect(ap3.appointment.serviceId).not.toBe(ap1.appointment.serviceId);
+
+		// não aparece na lista de serviços
+		const list = (await (await req("GET", "/v1/services")).json()) as Svc[];
+		expect(list.some((s) => s.id === ap1.appointment.serviceId)).toBe(false);
+
+		// 1 item em serviceIds = serviceId normal
+		const r4 = await post("2026-11-02T20:00:00.000Z", [a.id], 20);
+		expect(r4.status).toBe(201);
+		expect(
+			((await r4.json()) as { appointment: { serviceId: string } }).appointment
+				.serviceId,
+		).toBe(a.id);
+
+		// kit não combina com outros; inválidos dão 400 com mensagem humana
+		const kk = await post("2026-11-03T15:00:00.000Z", [a.id, k.id]);
+		expect(kk.status).toBe(400);
+		expect(((await kk.json()) as { error: string }).error).toContain(
+			"escolhe o kit sozinho",
+		);
+		const dup = await post("2026-11-03T15:00:00.000Z", [a.id, a.id]);
+		expect(((await dup.json()) as { error: string }).error).toBe(
+			"O mesmo serviço aparece duas vezes",
+		);
+		const muitos = await post(
+			"2026-11-03T15:00:00.000Z",
+			Array.from({ length: 11 }, () => crypto.randomUUID()),
+		);
+		expect(((await muitos.json()) as { error: string }).error).toBe(
+			"Escolhe de 2 a 10 serviços",
+		);
+		const semCliente = await req("POST", "/v1/appointments", {
+			serviceIds: [a.id, b.id],
+			startsAt: "2026-11-03T15:00:00.000Z",
+			duration_min: 50,
+		});
+		expect(semCliente.status).toBe(400);
+
+		// link público: service_ids → horário só, com o mesmo kit oculto
+		const book = (body: Record<string, unknown>) =>
+			app.request(`/p/${slug}/book`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					name: "Cli Pub",
+					phone: "11977776666",
+					starts_at: "2026-11-09T13:00:00.000Z",
+					...body,
+				}),
+			});
+		const pb = await book({ service_ids: [a.id, b.id] });
+		expect(pb.status).toBe(201);
+		const pbody = (await pb.json()) as { service: string; ends_at: string };
+		expect(pbody.service).toBe("Barba C + Corte C");
+		expect(pbody.ends_at).toBe("2026-11-09T13:50:00.000Z");
+		expect((await book({ service_ids: [a.id, k.id] })).status).toBe(400);
+		expect(
+			(
+				await book({
+					service_ids: [b.id],
+					starts_at: "2026-11-09T16:00:00.000Z",
+				})
+			).status,
+		).toBe(201);
+		expect((await book({ service_ids: ["x"] })).status).toBe(400);
+
+		// nome longo é cortado em 120 caracteres com "…"
+		const l1 = await svc("L".repeat(70), 5, 100);
+		const l2 = await svc("M".repeat(70), 5, 100);
+		const rl = await post("2026-11-02T18:00:00.000Z", [l1.id, l2.id], 10);
+		const longo = (await rl.json()) as { appointment: { serviceId: string } };
+		const [nm] = await sql<{ name: string }[]>`
+      SELECT name FROM services WHERE id = ${longo.appointment.serviceId}`;
+		expect(nm?.name).toHaveLength(120);
+		expect(nm?.name.endsWith("…")).toBe(true);
+
+		const html = await (await app.request(`/p/${slug}`)).text();
+		expect(html).toContain("service_ids: SEL");
+	});
 });

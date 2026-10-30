@@ -149,6 +149,8 @@ export const services = pgTable(
 		priceCents: integer("price_cents").notNull(),
 		// 0021: kit (combo) — itens em service_kit_items
 		isKit: boolean("is_kit").notNull().default(false),
+		// 0022: kit oculto montado na hora (vários serviços num agendamento)
+		adhoc: boolean("adhoc").notNull().default(false),
 		archivedAt: timestamp("archived_at", { withTimezone: true }),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.notNull()
@@ -199,6 +201,8 @@ export const clients = pgTable(
 		addressDistrict: varchar("address_district", { length: 80 }),
 		addressCity: varchar("address_city", { length: 80 }),
 		addressState: varchar("address_state", { length: 2 }),
+		// 0023: 'app' (prestador cadastrou) | 'public_link' (agendamento online)
+		origin: varchar("origin", { length: 20 }).notNull().default("app"),
 		// Soft-delete (LGPD: purge real via endpoint dedicado)
 		deletedAt: timestamp("deleted_at", { withTimezone: true }),
 		createdAt: timestamp("created_at", { withTimezone: true })

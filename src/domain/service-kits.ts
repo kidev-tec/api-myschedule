@@ -109,3 +109,100 @@ export async function activeKitsWith(
 			),
 		);
 }
+
+/**
+ * 0022 — vários serviços num agendamento só. Resolve a lista escolhida
+ * (2..10 serviços avulsos ativos, sem kit no meio) num kit OCULTO (adhoc,
+ * já arquivado: fora de listas/wizard/link) com nome "A + B", duração e
+ * preço somados. A mesma combinação (mesma ordem) é reaproveitada e tem
+ * duração/preço atualizados pros valores atuais dos serviços.
+ */
+export async function resolveCombo(
+	db: Db,
+	businessId: string,
+	raw: unknown,
+): Promise<
+	| { serviceId: string; name: string; durationMin: number; priceCents: number }
+	| { error: string }
+> {
+	const v = await validateKitItems(db, businessId, raw);
+	if ("error" in v) {
+		// mesmas regras do kit, com mensagem de "serviços escolhidos"
+		const msg = v.error.includes("outro kit")
+			? "Kit não combina com outros serviços — escolhe o kit sozinho"
+			: v.error.includes("de 2 a")
+				? "Escolhe de 2 a 10 serviços"
+				: v.error.replace(" do kit", "").replace(" no kit", "");
+		return { error: msg };
+	}
+	const rows = await db
+		.select({
+			id: services.id,
+			name: services.name,
+			durationMin: services.durationMin,
+			priceCents: services.priceCents,
+		})
+		.from(services)
+		.where(inArray(services.id, v.ids));
+	const byId = new Map(rows.map((r) => [r.id, r]));
+	const chosen = v.ids.map((id) => byId.get(id) as (typeof rows)[number]);
+	const full = chosen.map((s) => s.name).join(" + ");
+	const name = full.length <= 120 ? full : `${full.slice(0, 119)}…`;
+	const durationMin = chosen.reduce((a, s) => a + s.durationMin, 0);
+	const priceCents = chosen.reduce((a, s) => a + s.priceCents, 0);
+
+	// reaproveita a mesma combinação (mesmos itens, mesma ordem)
+	const candidates = await db
+		.select({ id: services.id })
+		.from(services)
+		.where(
+			and(
+				eq(services.businessId, businessId),
+				eq(services.adhoc, true),
+				eq(services.name, name),
+			),
+		);
+	const items = await kitItemsFor(
+		db,
+		candidates.map((c) => c.id),
+	);
+	const same = candidates.find(
+		(c) =>
+			items
+				.get(c.id)
+				?.map((i) => i.id)
+				.join() === v.ids.join(),
+	);
+	if (same) {
+		await db
+			.update(services)
+			.set({ durationMin, priceCents })
+			.where(eq(services.id, same.id));
+		return { serviceId: same.id, name, durationMin, priceCents };
+	}
+	const serviceId = await db.transaction(async (tx) => {
+		const [row] = await tx
+			.insert(services)
+			.values({
+				businessId,
+				name,
+				durationMin,
+				priceCents,
+				isKit: true,
+				adhoc: true,
+				archivedAt: new Date(),
+			})
+			.returning({ id: services.id });
+		/* v8 ignore next -- INSERT..RETURNING nunca é vazio no Postgres */
+		if (!row) throw new Error("falha ao montar os serviços");
+		await tx.insert(serviceKitItems).values(
+			v.ids.map((serviceId, position) => ({
+				kitId: row.id,
+				serviceId,
+				position,
+			})),
+		);
+		return row.id;
+	});
+	return { serviceId, name, durationMin, priceCents };
+}

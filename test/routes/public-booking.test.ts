@@ -201,7 +201,8 @@ describe("RF-07: link público de agendamento", () => {
 			from appointments a join clients c on c.id = a.client_id
 			where a.id = ${booking.id}`;
 		expect(rows[0]!.source).toBe("public_link");
-		expect(rows[0]!.phone_e164).toBe("14998887766");
+		// gravado no padrão do app (55 + DDD + número)
+		expect(rows[0]!.phone_e164).toBe("5514998887766");
 		expect(rows[0]!.client_name).toBe("Cliente Web");
 
 		// ---- mesmo slot de novo → 409
@@ -252,7 +253,7 @@ describe("RF-07: link público de agendamento", () => {
 			where business_id = (select id from businesses where slug = ${slug})
 			and name = 'Cliente Web'`) as unknown as { phone_e164: string }[];
 		expect(ph.length).toBe(1);
-		expect(ph[0]!.phone_e164).toBe("14998887766");
+		expect(ph[0]!.phone_e164).toBe("5514998887766");
 	});
 
 	it("validações: campos ruins, serviço estrangeiro, data passada", async () => {
@@ -484,6 +485,33 @@ describe("RF-07: link público de agendamento", () => {
 
 	it("info de slug inexistente → 404", async () => {
 		expect((await app.request("/p/nao-existe/info")).status).toBe(404);
+	});
+
+	it("formulário: 1. Seus dados primeiro e máscara do WhatsApp", async () => {
+		const res = await app.request("/p/slug-que-nao-existe");
+		const html = await res.text();
+		const dados = html.indexOf("<label>1. Seus dados</label>");
+		const servicos = html.indexOf("<label>2. Escolhe o(s) serviço(s)</label>");
+		expect(dados).toBeGreaterThan(0);
+		expect(servicos).toBeGreaterThan(dados);
+		expect(html).toContain('placeholder="Seu nome"');
+		expect(html).not.toContain("Teus dados");
+
+		// máscara: extrai a função do HTML servido e roda de verdade
+		const m = html.match(/function maskPhone\(v\)[\s\S]*?\n}/);
+		expect(m).toBeTruthy();
+		const maskPhone = new Function(`${m?.[0]}; return maskPhone;`)() as (
+			v: string,
+		) => string;
+		expect(maskPhone("")).toBe("");
+		expect(maskPhone("1")).toBe("(1");
+		expect(maskPhone("1198")).toBe("(11) 98");
+		expect(maskPhone("1134567890")).toBe("(11) 3456-7890");
+		expect(maskPhone("11987654321")).toBe("(11) 98765-4321");
+		expect(maskPhone("(11) 98765-43219999")).toBe("(11) 98765-4321");
+		expect(maskPhone("abc11def9")).toBe("(11) 9");
+		expect(maskPhone("+55 11 98765-4321")).toBe("(11) 98765-4321");
+		expect(maskPhone("55991234567")).toBe("(55) 99123-4567");
 	});
 
 	it("B1: paridade — slotStillValid inline no HTML ≡ função pura do domínio", async () => {

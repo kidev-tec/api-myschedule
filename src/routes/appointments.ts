@@ -32,6 +32,7 @@ import {
 } from "../domain/duration.js";
 import { mirrorToCalendar } from "../domain/gcal-mirror.js";
 import { startsOnOrBeforeToday } from "../domain/schedule-day.js";
+import { resolveCombo } from "../domain/service-kits.js";
 import { sendToUser } from "../services/fcm.js";
 import type { AppEnv } from "../types.js";
 
@@ -58,6 +59,8 @@ type CreateBody = {
 	endsAt?: unknown;
 	// duração flexível (SPEC v1.0.0): override por agendamento em minutos.
 	duration_min?: unknown;
+	// 0022: vários serviços (2+) num horário só; 1 item = serviceId
+	serviceIds?: unknown;
 	// 0020: folga após o atendimento; omitido = padrão do negócio.
 	buffer_min?: unknown;
 	// RF-A: "block" cria bloqueio de horário (compromisso externo do prestador).
@@ -202,6 +205,8 @@ export function appointmentRoutes(databaseUrl: string) {
 				client_name: clients.name,
 				// como o cliente prefere ser chamado (mensagens de WhatsApp)
 				client_nickname: clients.nickname,
+				// 0023: 'public_link' = cliente se cadastrou no agendamento online
+				client_origin: clients.origin,
 				client_phone: clients.phoneE164,
 				service_name: services.name,
 				service_duration_min: services.durationMin,
@@ -248,15 +253,28 @@ export function appointmentRoutes(databaseUrl: string) {
 			// Bloqueio não tem cliente/serviço de verdade: a API usa um par
 			// técnico oculto (ignora o que o app mandar).
 			({ clientId, serviceId } = await blockPair(db, user.businessId));
+		} else if (Array.isArray(body.serviceIds) && body.serviceIds.length > 1) {
+			// 0022: vários serviços num horário só → kit oculto "A + B"
+			if (!isUuid(body.clientId)) {
+				return c.json({ error: "clientId é obrigatório (uuid)" }, 400);
+			}
+			clientId = body.clientId;
+			const combo = await resolveCombo(db, user.businessId, body.serviceIds);
+			if ("error" in combo) return c.json({ error: combo.error }, 400);
+			serviceId = combo.serviceId;
 		} else {
-			if (!isUuid(body.clientId) || !isUuid(body.serviceId)) {
+			// serviceIds com 1 item = serviceId
+			const oneId = Array.isArray(body.serviceIds)
+				? body.serviceIds[0]
+				: body.serviceId;
+			if (!isUuid(body.clientId) || !isUuid(oneId)) {
 				return c.json(
 					{ error: "clientId e serviceId são obrigatórios (uuid)" },
 					400,
 				);
 			}
 			clientId = body.clientId;
-			serviceId = body.serviceId;
+			serviceId = oneId;
 			// Serviço excluído (arquivado) não aceita NOVOS agendamentos; os já
 			// feitos continuam com ele (histórico) e podem ser remarcados (PATCH).
 			const [svc] = await db
