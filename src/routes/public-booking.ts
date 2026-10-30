@@ -499,7 +499,7 @@ export function publicBookingRoutes(databaseUrl: string) {
 		const ics = [
 			"BEGIN:VCALENDAR",
 			"VERSION:2.0",
-			"PRODID:-//Minha Agenda//PT-BR",
+			"PRODID:-//AGENVA//PT-BR",
 			"BEGIN:VEVENT",
 			`UID:${appt.id}`,
 			`DTSTAMP:${fmt(new Date())}`,
@@ -638,7 +638,7 @@ export function publicBookingRoutes(databaseUrl: string) {
 			status: decide === "confirm" ? "confirmed" : "canceled",
 			message:
 				decide === "confirm"
-					? "Presença confirmada! Te esperamos."
+					? "Presença confirmada! Esperamos você."
 					: "Tudo certo, horário liberado.",
 		});
 	});
@@ -780,7 +780,7 @@ function gcalUrl(appt){
     action: 'TEMPLATE',
     text: \`\${appt.service} em \${appt.business}\`,
     dates: \`\${toGcalDate(new Date(appt.starts_at))}/\${toGcalDate(new Date(appt.ends_at))}\`,
-    details: 'Agendamento feito pelo link da Minha Agenda'
+    details: 'Agendamento feito pelo link do AGENVA'
   });
   return 'https://calendar.google.com/calendar/render?' + p.toString();
 }
@@ -799,7 +799,7 @@ function renderForm(msg){
   }
   app.innerHTML = \`
     <h1>\${INFO.business.name}</h1>
-    <p class="mut">com \${INFO.professional.name} · agende teu horário</p>
+    <p class="mut">com \${INFO.professional.name} · agende seu horário</p>
     \${INFO.business.address && INFO.business.address.street ? \`
     <p class="mut" id="biz-address">📍 \${[
       INFO.business.address.street,
@@ -813,15 +813,15 @@ function renderForm(msg){
       <label>1. Seus dados</label>
       <input id="nm" placeholder="Seu nome" value="\${NAME_DRAFT}">
       <input id="ph" placeholder="WhatsApp (com DDD)" inputmode="tel" style="margin-top:8px" value="\${PHONE_DRAFT}">
-      <label>2. Escolhe o(s) serviço(s)</label>
-      <p class="mut" style="margin:0 0 4px">Pode marcar mais de um — fica tudo num horário só.</p>
+      <label>2. Escolha o(s) serviço(s)</label>
+      <p class="mut" style="margin:0 0 4px">Pode marcar mais de um — todos ficam no mesmo horário.</p>
       \${INFO.services.map(s=>\`<div class="svc\${SEL.includes(s.id)?' sel':''}" onclick="pick('\${s.id}')">
         <span>\${esc(s.name)} · \${s.duration_min}min\${s.items&&s.items.length?'<br><small class="mut">Kit: '+s.items.map(esc).join(' + ')+'</small>':''}</span><b>\${s.items_total_cents>s.price_cents?'<s class="mut">'+brl(s.items_total_cents)+'</s> ':''}\${brl(s.price_cents)}</b></div>\`).join('')}
       \${SEL.length>1?\`<p id="sel-total"><b>\${SEL.length} serviços · \${selDur()} min · \${brl(selSvcs().reduce((a,s)=>a+s.price_cents,0))}</b></p>\`:''}
-      <label>3. Escolhe o dia</label>
+      <label>3. Escolha o dia</label>
       <div class="slots" id="days"></div>
       <label>4. Horários livres (\${DAY?DAY.toLocaleDateString('pt-BR'):'—'})</label>
-      <div class="slots" id="slots"><span class="mut">escolhe um dia acima</span></div>
+      <div class="slots" id="slots"><span class="mut">escolha um dia acima</span></div>
       <button id="go" onclick="book()">Confirmar agendamento</button>
     </div>\`;
   // mantém o que estava digitado a cada re-render
@@ -909,7 +909,7 @@ async function loadSlots(keepPicked){
     }
   }
   if(out.length>0 && out.every(d=>conflicts(d))){
-    slots.innerHTML='<span class="mut">sem horários livres pra este serviço neste dia — escolhe outro dia ou serviço</span>';
+    slots.innerHTML='<span class="mut">sem horários livres para este serviço neste dia — escolha outro dia ou serviço</span>';
   }
 }
 
@@ -917,8 +917,8 @@ async function book(){
   const nm=document.getElementById('nm').value.trim();
   const ph=document.getElementById('ph').value.trim();
   const e=document.getElementById('err');
-  if(!SEL.length){ e.textContent='escolhe um serviço'; e.style.display='block'; return; }
-  if(!window.PICKED){ e.textContent='escolhe um horário'; e.style.display='block'; return; }
+  if(!SEL.length){ e.textContent='escolha um serviço'; e.style.display='block'; return; }
+  if(!window.PICKED){ e.textContent='escolha um horário'; e.style.display='block'; return; }
   const btn=document.getElementById('go'); btn.disabled=true;
   try{
     const r = await fetch('/p/'+SLUG+'/book',{
@@ -946,11 +946,11 @@ async function book(){
         <a class="ics-btn" href="/p/\${SLUG}/ics/\${d.id}">📅 Salvar no meu celular</a>
         <a class="ics-btn gcal" target="_blank" href="\${gcalUrl(d)}">🗓️ Adicionar ao Google Calendar</a>
       </div>
-      <p class="mut" style="margin-top:10px">Toque acima pra teu celular te lembrar do horário. Te esperamos! 😉</p></div>\`;
+      <p class="mut" style="margin-top:10px">Toque acima para o seu celular lembrar você do horário. Esperamos você! 😉</p></div>\`;
   }catch(err){
     btn.disabled=false;
     const e=document.getElementById('err');
-    e.textContent='sem conexão, tenta de novo';
+    e.textContent='sem conexão, tente novamente';
     e.style.display='block';
   }
 }

@@ -44,7 +44,7 @@ export function billingRoutes(databaseUrl: string) {
 				: "";
 		if (cpfCnpj.length !== 11 && cpfCnpj.length !== 14) {
 			return c.json(
-				{ error: "Preciso do teu CPF (11 números) pra criar a cobrança" },
+				{ error: "Informe seu CPF (11 números) para criar a cobrança" },
 				400,
 			);
 		}

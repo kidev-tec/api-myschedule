@@ -126,8 +126,8 @@ describe("kits de serviço", () => {
 		const outroKit = (await (await kit("K1", [a.id, b.id])).json()) as Svc;
 
 		const casos: [unknown, string][] = [
-			["x", "Escolhe os serviços do kit"],
-			[[a.id, 7], "Escolhe os serviços do kit"],
+			["x", "Escolha os serviços do kit"],
+			[[a.id, 7], "Escolha os serviços do kit"],
 			[[a.id, a.id], "duas vezes"],
 			[[a.id], "de 2 a 10"],
 			[Array.from({ length: 11 }, () => crypto.randomUUID()), "de 2 a 10"],
@@ -332,7 +332,7 @@ describe("kits de serviço", () => {
 		const kk = await post("2026-11-03T15:00:00.000Z", [a.id, k.id]);
 		expect(kk.status).toBe(400);
 		expect(((await kk.json()) as { error: string }).error).toContain(
-			"escolhe o kit sozinho",
+			"escolha o kit sozinho",
 		);
 		const dup = await post("2026-11-03T15:00:00.000Z", [a.id, a.id]);
 		expect(((await dup.json()) as { error: string }).error).toBe(
@@ -343,7 +343,7 @@ describe("kits de serviço", () => {
 			Array.from({ length: 11 }, () => crypto.randomUUID()),
 		);
 		expect(((await muitos.json()) as { error: string }).error).toBe(
-			"Escolhe de 2 a 10 serviços",
+			"Escolha de 2 a 10 serviços",
 		);
 		const semCliente = await req("POST", "/v1/appointments", {
 			serviceIds: [a.id, b.id],

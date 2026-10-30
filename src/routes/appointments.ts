@@ -291,7 +291,7 @@ export function appointmentRoutes(databaseUrl: string) {
 				return c.json(
 					{
 						error:
-							"Esse serviço foi excluído e não aceita novos agendamentos. Escolhe outro serviço.",
+							"Esse serviço foi excluído e não aceita novos agendamentos. Escolha outro serviço.",
 					},
 					400,
 				);
@@ -628,7 +628,7 @@ export function appointmentRoutes(databaseUrl: string) {
 						return c.json(
 							{
 								error:
-									"Esse dia ainda não chegou — só dá pra concluir ou marcar falta a partir do dia do agendamento",
+									"Esse dia ainda não chegou — só é possível concluir ou marcar falta a partir do dia do agendamento",
 							},
 							400,
 						);
@@ -882,7 +882,7 @@ export function appointmentRoutes(databaseUrl: string) {
 							userId: user.id,
 							type: "waitlist",
 							title: "Vaga abriu — lista de espera",
-							body: `${n} cliente${n > 1 ? "s" : ""} na espera pra esse dia. Abre a lista de espera pra avisar.`,
+							body: `${n} cliente${n > 1 ? "s" : ""} na espera para esse dia. Abra a lista de espera para avisar.`,
 							data: { date: dayStr },
 						});
 					}

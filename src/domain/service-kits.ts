@@ -63,7 +63,7 @@ export async function validateKitItems(
 				typeof v !== "string" || !/^[0-9a-f-]{36}$/i.test(v) || v === selfId,
 		)
 	) {
-		return { error: "Escolhe os serviços do kit" };
+		return { error: "Escolha os serviços do kit" };
 	}
 	const ids = raw as string[];
 	if (new Set(ids).size !== ids.length) {
@@ -129,9 +129,9 @@ export async function resolveCombo(
 	if ("error" in v) {
 		// mesmas regras do kit, com mensagem de "serviços escolhidos"
 		const msg = v.error.includes("outro kit")
-			? "Kit não combina com outros serviços — escolhe o kit sozinho"
+			? "Kit não combina com outros serviços — escolha o kit sozinho"
 			: v.error.includes("de 2 a")
-				? "Escolhe de 2 a 10 serviços"
+				? "Escolha de 2 a 10 serviços"
 				: v.error.replace(" do kit", "").replace(" no kit", "");
 		return { error: msg };
 	}

@@ -299,7 +299,7 @@ export function servicesRoutes(databaseUrl: string) {
 			const nomes = kits.map((k) => `"${k.name}"`).join(", ");
 			return c.json(
 				{
-					error: `Esse serviço faz parte ${kits.length > 1 ? "dos kits" : "do kit"} ${nomes}. Tira ele ${kits.length > 1 ? "dos kits" : "do kit"} antes, ou exclui ${kits.length > 1 ? "os kits" : "o kit"} junto.`,
+					error: `Esse serviço faz parte ${kits.length > 1 ? "dos kits" : "do kit"} ${nomes}. Retire-o ${kits.length > 1 ? "dos kits" : "do kit"} antes, ou exclua ${kits.length > 1 ? "os kits" : "o kit"} junto.`,
 					kits,
 				},
 				409,
@@ -616,7 +616,7 @@ export function meRoutes(databaseUrl: string) {
 			return c.json(
 				{
 					error:
-						"Já existe um estabelecimento com esse nome neste segmento. Escolhe outro nome.",
+						"Já existe um estabelecimento com esse nome neste segmento. Escolha outro nome.",
 				},
 				409,
 			);

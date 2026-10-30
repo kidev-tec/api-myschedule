@@ -1,5 +1,5 @@
 /**
- * Schema Drizzle — Minha Agenda (api)
+ * Schema Drizzle — AGENVA (api)
  *
  * Regras de integridade (ver ARCHITECTURE.md):
  * - Overlap de appointments impossível no banco: EXCLUDE USING gist em

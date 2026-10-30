@@ -491,7 +491,7 @@ describe("RF-07: link público de agendamento", () => {
 		const res = await app.request("/p/slug-que-nao-existe");
 		const html = await res.text();
 		const dados = html.indexOf("<label>1. Seus dados</label>");
-		const servicos = html.indexOf("<label>2. Escolhe o(s) serviço(s)</label>");
+		const servicos = html.indexOf("<label>2. Escolha o(s) serviço(s)</label>");
 		expect(dados).toBeGreaterThan(0);
 		expect(servicos).toBeGreaterThan(dados);
 		expect(html).toContain('placeholder="Seu nome"');
