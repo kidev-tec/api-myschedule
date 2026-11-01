@@ -61,6 +61,8 @@ async function setupProfessional(name: string, refreshToken: string | null) {
 	h = tokenHeader;
 }
 
+// celular único por fixture: o mesmo celular no mesmo negócio agora é 409
+let fixtureSeq = 0;
 async function createFixture(): Promise<{
 	clientId: string;
 	serviceId: string;
@@ -71,7 +73,8 @@ async function createFixture(): Promise<{
 		headers: { "content-type": "application/json", ...h },
 		body: JSON.stringify({
 			name: "Cliente GCal",
-			phone_e164: "+5514999990001",
+			// 1ª fixture mantém o número que os asserts conferem
+			phone_e164: `+5514999990${String(++fixtureSeq).padStart(3, "0")}`,
 		}),
 	});
 	const cBody = (await cRes.json()) as { id?: string };
@@ -182,7 +185,7 @@ describe("RF-08: espelho two-way no Calendar", () => {
 		);
 		const body = JSON.parse(createCall?.[1].body as string);
 		expect(body.summary).toBe("Corte — Cliente GCal");
-		expect(body.description).toContain("+5514999990001");
+		expect(body.description).toMatch(/Cliente GCal \(\+5514999990\d{3}\)/);
 	});
 
 	it("remarcação de confirmado → PATCH atualiza o evento", async () => {

@@ -139,7 +139,7 @@ describe("PATCH /v1/clients/:id", () => {
 		});
 		expect(res.status).toBe(409);
 		const body = (await res.json()) as { error: string };
-		expect(body.error).toContain("telefone");
+		expect(body.error).toContain("Esse celular já é de");
 	});
 
 	it("200 — telefone igual ao PRÓPRIO não é conflito (self-update)", async () => {
@@ -264,7 +264,7 @@ describe("PATCH /v1/clients/:id", () => {
 		expect(res.status).toBe(400);
 	});
 
-	it("409 — dedupe ignora clientes soft-deleted (pode reusar telefone)", async () => {
+	it("409 — celular de cliente arquivado não é reaproveitado (oferece reativar)", async () => {
 		const h = authed(uid());
 		await createdUser(h);
 		const a = await createClient(h, "Ana", "+5514999990070");
@@ -277,13 +277,21 @@ describe("PATCH /v1/clients/:id", () => {
 		});
 		expect(del.status).toBe(200);
 
-		// Ana pode pegar o telefone da Bia deletada
+		// o celular continua da Bia (arquivada): 409 com ela pra reativar
 		const res = await app.request(`/v1/clients/${a.id}`, {
 			method: "PATCH",
 			headers: { "content-type": "application/json", ...h },
 			body: JSON.stringify({ name: "Ana", phone_e164: "+5514999990071" }),
 		});
-		expect(res.status).toBe(200);
+		expect(res.status).toBe(409);
+		const body = (await res.json()) as {
+			error: string;
+			archived: boolean;
+			existing: { id: string };
+		};
+		expect(body.archived).toBe(true);
+		expect(body.existing.id).toBe(b.id);
+		expect(body.error).toBe("Esse celular já é de Bia (cliente arquivado)");
 	});
 });
 

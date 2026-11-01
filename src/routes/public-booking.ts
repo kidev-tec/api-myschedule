@@ -52,7 +52,11 @@ function isUuid(v: unknown): v is string {
 
 // ---- rate limit em memória (por processo; ok pra MVP single-instância)
 const hits = new Map<string, number[]>();
-function rateLimited(key: string, max: number, windowMs: number): boolean {
+export function rateLimited(
+	key: string,
+	max: number,
+	windowMs: number,
+): boolean {
 	const now = Date.now();
 	const arr = (hits.get(key) ?? []).filter((t) => now - t < windowMs);
 	arr.push(now);
@@ -716,6 +720,7 @@ button:disabled{opacity:.5}
 .slot{padding:10px 12px;border:1.5px solid #ddd;border-radius:10px;cursor:pointer;font-size:.9rem}
 .slot.sel{border-color:var(--p);background:var(--selBg);font-weight:700}
 .slot.off{opacity:.35;text-decoration:line-through;cursor:not-allowed;pointer-events:none}
+button.sec{background:#fff;color:var(--p);border:1.5px solid var(--p);margin-top:10px;font-weight:600}
 </style>
 </head>
 <body>
@@ -823,6 +828,7 @@ function renderForm(msg){
       <label>4. Horários livres (\${DAY?DAY.toLocaleDateString('pt-BR'):'—'})</label>
       <div class="slots" id="slots"><span class="mut">escolha um dia acima</span></div>
       <button id="go" onclick="book()">Confirmar agendamento</button>
+      <button id="wl" class="sec" onclick="joinWaitlist()">\${wlLabel()}</button>
     </div>\`;
   // mantém o que estava digitado a cada re-render
   const nm = document.getElementById('nm');
@@ -858,7 +864,14 @@ window.pick = id => {
   PICKED_KEEP=!!window.PICKED; renderForm();
 };
 
+// rótulo do botão da lista de espera (segue o dia escolhido)
+function wlLabel(){
+  return '⏳ Não achou horário? Entrar na lista de espera'+(DAY?' de '+DAY.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}):'');
+}
+
 async function loadSlots(keepPicked){
+  const wl = document.getElementById('wl');
+  if(wl) wl.textContent = wlLabel();
   // slots de 10min entre abrir/fechar do dia, já filtrando ocupados pela
   // duração do serviço escolhido + folga do negócio (GET /p/:slug/busy)
   const slots = document.getElementById('slots');
@@ -910,6 +923,36 @@ async function loadSlots(keepPicked){
   }
   if(out.length>0 && out.every(d=>conflicts(d))){
     slots.innerHTML='<span class="mut">sem horários livres para este serviço neste dia — escolha outro dia ou serviço</span>';
+  }
+}
+
+// Lista de espera do dia escolhido: usa o nome/WhatsApp já digitados.
+async function joinWaitlist(){
+  const nm=document.getElementById('nm').value.trim();
+  const ph=document.getElementById('ph').value.trim();
+  const e=document.getElementById('err');
+  const fail = m => { e.textContent=m; e.style.display='block'; };
+  if(!nm) return fail('Informe seu nome para entrar na lista de espera');
+  if(ph.replace(/\\D/g,'').length<10) return fail('Informe seu WhatsApp com DDD para entrar na lista de espera');
+  if(!DAY) return fail('Escolha o dia em que você quer a vaga');
+  const ds = DAY.getFullYear()+'-'+String(DAY.getMonth()+1).padStart(2,'0')+'-'+String(DAY.getDate()).padStart(2,'0');
+  const btn=document.getElementById('wl'); btn.disabled=true;
+  try{
+    const r = await fetch('/v1/p/'+SLUG+'/waitlist',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ name:nm, phone:ph, desired_date:ds })
+    });
+    const d = await r.json();
+    if(!r.ok){ btn.disabled=false; return fail(d.error||'Não foi possível entrar na lista agora'); }
+    const dia = DAY.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'2-digit'});
+    app.innerHTML = \`<div class="ok card"><div class="big">⏳</div>
+      <h1>Você está na lista de espera!</h1>
+      <p style="margin-top:10px;font-weight:700">\${esc(dia)}</p>
+      <p class="mut" style="margin-top:10px">Se abrir um horário nesse dia, \${esc(INFO.business.name)} avisa você pelo WhatsApp \${esc(ph)}.</p>
+      <button class="sec" onclick="renderForm()">Voltar para a agenda</button></div>\`;
+  }catch(err){
+    btn.disabled=false;
+    fail('sem conexão, tente novamente');
   }
 }
 

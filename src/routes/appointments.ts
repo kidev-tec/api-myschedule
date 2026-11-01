@@ -17,7 +17,6 @@ import {
 	services,
 	timeOffs,
 	users,
-	waitlist,
 	workingHours,
 } from "../db/schema.js";
 import { overlaps } from "../domain/booking.js";
@@ -33,7 +32,7 @@ import {
 import { mirrorToCalendar } from "../domain/gcal-mirror.js";
 import { startsOnOrBeforeToday } from "../domain/schedule-day.js";
 import { resolveCombo } from "../domain/service-kits.js";
-import { notify } from "../services/notify.js";
+import { notifyWaitlistOpening } from "../services/waitlist-notify.js";
 import type { AppEnv } from "../types.js";
 
 async function requireUser(db: Db, firebaseUid: string) {
@@ -862,30 +861,13 @@ export function appointmentRoutes(databaseUrl: string) {
 				mirrorToCalendar(databaseUrl, updated.id).catch((e) =>
 					console.error("[gcal] espelho falhou:", e),
 				);
-				// F5: cancelou → conta pra lista de espera do dia quantos
-				// interessados existem (push best-effort pro prestador avisar)
+				// F5: cancelou → avisa o prestador se tem gente na espera do dia
 				if (patch.status === "canceled") {
-					const dayStr = updated.startsAt.toISOString().slice(0, 10);
-					const waiting = await db
-						.select({ n: sql<number>`count(*)::int` })
-						.from(waitlist)
-						.where(
-							and(
-								eq(waitlist.businessId, user.businessId),
-								sql`${waitlist.desiredDate}::date = ${dayStr}::date`,
-								eq(waitlist.status, "waiting"),
-							),
-						);
-					const n = waiting[0]?.n ?? 0;
-					if (n > 0) {
-						void notify(databaseUrl, {
-							userId: user.id,
-							type: "waitlist",
-							title: "Vaga abriu — lista de espera",
-							body: `${n} cliente${n > 1 ? "s" : ""} na espera para esse dia. Abra a lista de espera para avisar.`,
-							data: { date: dayStr },
-						});
-					}
+					await notifyWaitlistOpening(
+						databaseUrl,
+						{ userId: user.id, businessId: user.businessId },
+						[updated.startsAt],
+					);
 				}
 			}
 
