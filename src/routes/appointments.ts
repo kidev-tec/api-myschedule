@@ -31,7 +31,7 @@ import {
 	type WorkingHour,
 } from "../domain/duration.js";
 import { mirrorToCalendar } from "../domain/gcal-mirror.js";
-import { startsOnOrBeforeToday } from "../domain/schedule-day.js";
+import { dayKey, startsOnOrBeforeToday } from "../domain/schedule-day.js";
 import { resolveCombo } from "../domain/service-kits.js";
 import { notify } from "../services/notify.js";
 import type { AppEnv } from "../types.js";
@@ -865,7 +865,17 @@ export function appointmentRoutes(databaseUrl: string) {
 				// F5: cancelou → conta pra lista de espera do dia quantos
 				// interessados existem (push best-effort pro prestador avisar)
 				if (patch.status === "canceled") {
-					const dayStr = updated.startsAt.toISOString().slice(0, 10);
+					// dia no fuso do negócio (21h de BRT já é o dia seguinte em UTC)
+					const [biz] = await db
+						.select({ timezone: businesses.timezone })
+						.from(businesses)
+						.where(eq(businesses.id, user.businessId))
+						.limit(1);
+					const dayStr = dayKey(
+						updated.startsAt,
+						/* v8 ignore next -- business do usuário sempre existe (FK) */
+						biz?.timezone ?? "America/Sao_Paulo",
+					);
 					const waiting = await db
 						.select({ n: sql<number>`count(*)::int` })
 						.from(waitlist)
@@ -882,7 +892,7 @@ export function appointmentRoutes(databaseUrl: string) {
 							userId: user.id,
 							type: "waitlist",
 							title: "Vaga abriu — lista de espera",
-							body: `${n} cliente${n > 1 ? "s" : ""} na espera para esse dia. Abra a lista de espera para avisar.`,
+							body: `${n} cliente${n > 1 ? "s" : ""} na espera para ${dayStr.slice(8, 10)}/${dayStr.slice(5, 7)}. Toque para avisar.`,
 							data: { date: dayStr },
 						});
 					}

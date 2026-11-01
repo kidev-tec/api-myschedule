@@ -20,6 +20,7 @@ vi.mock("firebase-admin/messaging", () => ({
 }));
 
 import { createApp } from "../../src/app.js";
+import { dayKey } from "../../src/domain/schedule-day.js";
 
 const DATABASE_URL =
 	process.env.TEST_DATABASE_URL ??
@@ -30,6 +31,10 @@ const app = createApp({
 	databaseUrl: DATABASE_URL,
 	firebaseProjectId: "test-project",
 });
+
+/** Dia daqui a `n` dias (YYYY-MM-DD) — data fixa no teste envelhece. */
+const futureDay = (n: number) =>
+	new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
 
 let seq = 0;
 const uid = () => `test-uid-wait-${Date.now()}-${seq++}`;
@@ -133,13 +138,13 @@ describe("F5 waitlist", () => {
 			body: JSON.stringify({
 				client_name: "X",
 				phone: "+5511966665555",
-				desired_date: "2026-12-25",
+				desired_date: futureDay(30),
 			}),
 		});
 		expect(badSlug.status).toBe(404);
 
 		// entra na lista do business dele e marca como notified
-		const day = "2026-12-25";
+		const day = futureDay(30);
 		const ins = await app.request(`/v1/p/${slug}/waitlist`, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
@@ -164,7 +169,7 @@ describe("F5 waitlist", () => {
 	it("cancelar appointment com waitlist no dia → push pro prestador", async () => {
 		const { h, slug, bizId } = await setup();
 		const day = new Date(Date.now() + 7 * 86_400_000);
-		const dateStr = day.toISOString().slice(0, 10);
+		const dateStr = dayKey(day, "America/Sao_Paulo");
 		// cliente na espera do dia
 		await app.request(`/v1/p/${slug}/waitlist`, {
 			method: "POST",
@@ -245,11 +250,11 @@ describe("F5 waitlist — branches defensivas do PATCH", () => {
 			body: JSON.stringify({
 				client_name: "B",
 				phone: "+5511911112222",
-				desired_date: "2026-11-05",
+				desired_date: futureDay(4),
 			}),
 		});
 		expect(insB.status).toBe(201);
-		const list = await app.request(`/v1/waitlist?date=2026-11-05`, {
+		const list = await app.request(`/v1/waitlist?date=${futureDay(4)}`, {
 			headers: h,
 		});
 		const body = (await list.json()) as { waitlist: { id: string }[] };
@@ -296,7 +301,7 @@ describe("F5 waitlist — validações de entrada", () => {
 			body: JSON.stringify({
 				client_name: "",
 				phone: "+5511966665555",
-				desired_date: "2026-12-25",
+				desired_date: futureDay(30),
 			}),
 		});
 		expect(badName.status).toBe(400);
