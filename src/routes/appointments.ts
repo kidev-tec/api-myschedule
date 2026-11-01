@@ -17,7 +17,6 @@ import {
 	services,
 	timeOffs,
 	users,
-	waitlist,
 	workingHours,
 } from "../db/schema.js";
 import { overlaps } from "../domain/booking.js";
@@ -31,9 +30,9 @@ import {
 	type WorkingHour,
 } from "../domain/duration.js";
 import { mirrorToCalendar } from "../domain/gcal-mirror.js";
-import { dayKey, startsOnOrBeforeToday } from "../domain/schedule-day.js";
+import { startsOnOrBeforeToday } from "../domain/schedule-day.js";
 import { resolveCombo } from "../domain/service-kits.js";
-import { notify } from "../services/notify.js";
+import { notifyWaitlistOpening } from "../services/waitlist-notify.js";
 import type { AppEnv } from "../types.js";
 
 async function requireUser(db: Db, firebaseUid: string) {
@@ -862,40 +861,13 @@ export function appointmentRoutes(databaseUrl: string) {
 				mirrorToCalendar(databaseUrl, updated.id).catch((e) =>
 					console.error("[gcal] espelho falhou:", e),
 				);
-				// F5: cancelou → conta pra lista de espera do dia quantos
-				// interessados existem (push best-effort pro prestador avisar)
+				// F5: cancelou → avisa o prestador se tem gente na espera do dia
 				if (patch.status === "canceled") {
-					// dia no fuso do negócio (21h de BRT já é o dia seguinte em UTC)
-					const [biz] = await db
-						.select({ timezone: businesses.timezone })
-						.from(businesses)
-						.where(eq(businesses.id, user.businessId))
-						.limit(1);
-					const dayStr = dayKey(
-						updated.startsAt,
-						/* v8 ignore next -- business do usuário sempre existe (FK) */
-						biz?.timezone ?? "America/Sao_Paulo",
+					await notifyWaitlistOpening(
+						databaseUrl,
+						{ userId: user.id, businessId: user.businessId },
+						[updated.startsAt],
 					);
-					const waiting = await db
-						.select({ n: sql<number>`count(*)::int` })
-						.from(waitlist)
-						.where(
-							and(
-								eq(waitlist.businessId, user.businessId),
-								sql`${waitlist.desiredDate}::date = ${dayStr}::date`,
-								eq(waitlist.status, "waiting"),
-							),
-						);
-					const n = waiting[0]?.n ?? 0;
-					if (n > 0) {
-						void notify(databaseUrl, {
-							userId: user.id,
-							type: "waitlist",
-							title: "Vaga abriu — lista de espera",
-							body: `${n} cliente${n > 1 ? "s" : ""} na espera para ${dayStr.slice(8, 10)}/${dayStr.slice(5, 7)}. Toque para avisar.`,
-							data: { date: dayStr },
-						});
-					}
 				}
 			}
 

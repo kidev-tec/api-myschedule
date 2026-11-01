@@ -40,6 +40,7 @@ import { appointments, clients, services, users } from "../db/schema.js";
 import { parseClientProfile } from "../domain/client-profile.js";
 import { mirrorToCalendar } from "../domain/gcal-mirror.js";
 import { phoneMatchKeys } from "../domain/phone-br.js";
+import { notifyWaitlistOpening } from "../services/waitlist-notify.js";
 import type { AppEnv } from "../types.js";
 
 function serialize(r: typeof clients.$inferSelect) {
@@ -457,8 +458,13 @@ export function clientsRoutes(databaseUrl: string) {
 	});
 
 	/** Agendamentos futuros ativos do cliente (aviso antes de arquivar). */
-	async function upcomingOf(businessId: string, clientId: string) {
-		return db
+	async function upcomingOf(
+		businessId: string,
+		clientId: string,
+		// dentro de transação, usa a conexão dela (senha do pool não dá deadlock)
+		q: Pick<Db, "select"> = db,
+	) {
+		return q
 			.select({
 				id: appointments.id,
 				startsAt: appointments.startsAt,
@@ -519,9 +525,9 @@ export function clientsRoutes(databaseUrl: string) {
 				.where(and(eq(clients.id, id), eq(clients.businessId, me.businessId)))
 				.returning();
 			if (!upd) return null;
-			let canceled: string[] = [];
+			let canceled: { id: string; startsAt: Date }[] = [];
 			if (cancelFuture) {
-				const future = await upcomingOf(me.businessId, id);
+				const future = await upcomingOf(me.businessId, id, tx);
 				if (future.length > 0) {
 					await tx
 						.update(appointments)
@@ -536,17 +542,25 @@ export function clientsRoutes(databaseUrl: string) {
 								future.map((f) => f.id),
 							),
 						);
-					canceled = future.map((f) => f.id);
+					canceled = future;
 				}
 			}
 			return { upd, canceled };
 		});
 		if (!result) return c.json({ error: "cliente não encontrado" }, 404);
 		// espelho do Google Calendar remove os cancelados (best-effort)
-		for (const apptId of result.canceled) {
-			mirrorToCalendar(databaseUrl, apptId).catch(
+		for (const appt of result.canceled) {
+			mirrorToCalendar(databaseUrl, appt.id).catch(
 				/* v8 ignore next -- best-effort: falha do Calendar não falha a rota */
 				(e) => console.error("[gcal] espelho falhou:", e),
+			);
+		}
+		// horários liberados: avisa quem está na lista de espera desses dias
+		if (result.canceled.length > 0) {
+			await notifyWaitlistOpening(
+				databaseUrl,
+				{ userId: me.id, businessId: me.businessId },
+				result.canceled.map((a) => a.startsAt),
 			);
 		}
 		return c.json({

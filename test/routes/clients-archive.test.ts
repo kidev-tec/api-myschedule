@@ -59,6 +59,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+	await sql`DELETE FROM notifications WHERE business_id = ${bizId}`;
+	await sql`DELETE FROM waitlist WHERE business_id = ${bizId}`;
 	await sql`DELETE FROM appointments WHERE business_id = ${bizId}`;
 	await sql`DELETE FROM clients WHERE business_id = ${bizId}`;
 	await sql`DELETE FROM services WHERE business_id = ${bizId}`;
@@ -200,6 +202,73 @@ describe("arquivar, listar arquivados, reativar", () => {
 		expect(by[f2]?.status).toBe("canceled");
 		expect(by[p1]?.status).toBe("confirmed"); // passado não mexe
 	});
+
+	it("arquivar cancelando futuros avisa a lista de espera, um aviso por dia", async () => {
+		const tz = "America/Sao_Paulo";
+		const dia = (n: number) =>
+			new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(
+				new Date(Date.now() + n * 86_400_000),
+			);
+		const eva = await create("Eva", "5511987650601");
+		const d40 = dia(40);
+		// dois horários no dia com espera e um num dia sem ninguém esperando
+		for (const [day, hora] of [
+			[d40, "10:00"],
+			[d40, "15:00"],
+			[dia(41), "10:00"],
+		] as const) {
+			const inicio = new Date(`${day}T${hora}:00-03:00`);
+			await sql`
+        INSERT INTO appointments (business_id, client_id, service_id, user_id, starts_at, ends_at, status)
+        VALUES (${bizId}, ${eva.id}, ${serviceId}, ${userId}, ${inicio},
+                ${new Date(inicio.getTime() + 1_800_000)}, 'confirmed')`;
+		}
+		await req("POST", "/v1/waitlist", {
+			name: "Fila",
+			phone: "11987650602",
+			desired_date: d40,
+		});
+		await req("POST", "/v1/waitlist", {
+			name: "Fila 2",
+			phone: "11987650603",
+			desired_date: d40,
+		});
+		const del = await req("DELETE", `/v1/clients/${eva.id}?cancel_future=1`);
+		expect(
+			((await del.json()) as { canceled_appointments: number })
+				.canceled_appointments,
+		).toBe(3);
+		await vi.waitFor(async () => {
+			const rows = await sql<{ body: string; date: string }[]>`
+        SELECT body, data->>'date' AS date FROM notifications
+        WHERE business_id = ${bizId} AND type = 'waitlist'`;
+			expect(rows).toEqual([
+				{
+					body: `2 clientes na espera para ${d40.slice(8, 10)}/${d40.slice(5, 7)}. Toque para avisar.`,
+					date: d40,
+				},
+			]);
+		});
+	});
+
+	it("vários arquivamentos com cancel_future ao mesmo tempo não travam o pool", async () => {
+		// bem mais pedidos que conexões (max 10): consulta fora da transação fica
+		// esperando conexão enquanto cada transação segura a sua. Com 12 nem
+		// sempre trava; com 40 trava sempre sem a correção.
+		const ids: string[] = [];
+		for (let i = 0; i < 40; i++) {
+			const cli = await create(
+				`Lote ${i}`,
+				`55119876507${String(i).padStart(2, "0")}`,
+			);
+			await appt(cli.id, 60 + i);
+			ids.push(cli.id);
+		}
+		const res = await Promise.all(
+			ids.map((id) => req("DELETE", `/v1/clients/${id}?cancel_future=1`)),
+		);
+		expect(res.map((r) => r.status)).toEqual(ids.map(() => 200));
+	}, 15_000);
 
 	it("arquivar sem futuros e com cancel_future=1 → 0 cancelados", async () => {
 		const caio = await create("Caio", "5511987650401");
