@@ -329,7 +329,7 @@ describe("/v1/working-hours", () => {
 });
 
 describe("/v1/clients", () => {
-	it("POST cria, GET lista, GET por id, DELETE soft (404 depois)", async () => {
+	it("POST cria, GET lista, GET por id, DELETE arquiva (some da lista, segue por id)", async () => {
 		const h = authed(uid());
 		await createdUser(h);
 		const res = await app.request("/v1/clients", {
@@ -358,8 +358,15 @@ describe("/v1/clients", () => {
 			headers: h,
 		});
 		expect(del.status).toBe(200);
+		// arquivado continua acessível por id (histórico não se perde)…
 		const gone = await app.request(`/v1/clients/${created.id}`, { headers: h });
-		expect(gone.status).toBe(404);
+		expect(gone.status).toBe(200);
+		expect(((await gone.json()) as { archived: boolean }).archived).toBe(true);
+		// …mas some da lista de ativos
+		const list = (await (
+			await app.request("/v1/clients", { headers: h })
+		).json()) as { id: string }[];
+		expect(list.some((x) => x.id === created.id)).toBe(false);
 	});
 
 	it("400 sem phone válido", async () => {
@@ -1061,7 +1068,7 @@ describe("/v1/clients", () => {
 				await app.request(`/v1/services/${svc.id}`, {
 					method: "PATCH",
 					headers: { "content-type": "application/json", ...h },
-					body: JSON.stringify({ duration_min: 50 }),
+					body: JSON.stringify({ duration_min: 52 }),
 				})
 			).status,
 		).toBe(400);

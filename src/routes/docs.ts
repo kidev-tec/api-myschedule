@@ -7,7 +7,7 @@ function scalarHtml(): string {
 	return `<!doctype html>
 <html lang="pt-BR">
   <head>
-    <title>Minha Agenda API — Docs</title>
+    <title>AGENVA API — Docs</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
   </head>

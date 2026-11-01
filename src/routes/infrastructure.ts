@@ -17,7 +17,7 @@ import {
 	users,
 } from "../db/schema.js";
 import { sendEmail, trialEndingEmail } from "../services/email.js";
-import { sendToUser } from "../services/fcm.js";
+import { notify } from "../services/notify.js";
 import type { AppEnv } from "../types.js";
 
 export function deviceRoutes(databaseUrl: string) {
@@ -200,6 +200,8 @@ export function internalRoutes(databaseUrl: string) {
 					gt(appointments.startsAt, now),
 					lte(appointments.startsAt, in24h),
 					sql`(${appointments.reminderSentAt} IS NULL)`,
+					// bloqueio de horário não é compromisso com cliente
+					sql`${appointments.source} <> 'block'`,
 				),
 			);
 
@@ -213,12 +215,16 @@ export function internalRoutes(databaseUrl: string) {
 				// Sempre no fuso do negócio — nunca no fuso do servidor (UTC em prod).
 				timeZone: appt.businessTimezone,
 			});
-			await sendToUser(
-				databaseUrl,
-				appt.userId,
-				"Lembrete de agendamento",
-				`${appt.clientName} — ${appt.serviceName} em ${when}`,
-			);
+			await notify(databaseUrl, {
+				userId: appt.userId,
+				type: "reminder",
+				title: "Lembrete de agendamento",
+				body: `${appt.clientName} — ${appt.serviceName} em ${when}`,
+				data: {
+					appointment_id: appt.id,
+					starts_at: appt.startsAt.toISOString(),
+				},
+			});
 			await db
 				.update(appointments)
 				.set({ reminderSentAt: now })

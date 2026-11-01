@@ -35,10 +35,13 @@ export interface SlotValidityInput {
 	busy: BusyInterval[];
 	/** Agora (injetável p/ teste). */
 	now: Date;
+	/** Folga após o atendimento (0020), em minutos. Default 0. */
+	bufferMin?: number;
 }
 
 export function slotStillValid(input: SlotValidityInput): boolean {
 	const { picked, day, durationMin, workingHours, busy, now } = input;
+	const bufferMin = input.bufferMin ?? 0;
 	if (picked.getTime() <= now.getTime()) return false;
 
 	const wd = day.getDay();
@@ -54,7 +57,8 @@ export function slotStillValid(input: SlotValidityInput): boolean {
 	if (startMin < openMin || endMin > closeMin) return false;
 
 	const startMs = picked.getTime();
-	const endMs = startMs + durationMin * 60000;
+	// a folga não precisa caber na janela, mas não pode invadir outro horário
+	const endMs = startMs + (durationMin + bufferMin) * 60000;
 	return !busy.some(
 		(b) =>
 			startMs < new Date(b.end).getTime() &&

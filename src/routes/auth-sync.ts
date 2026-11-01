@@ -21,6 +21,7 @@ import {
 	loyaltyCards,
 	loyaltyPrograms,
 	messageTemplates,
+	serviceKitItems,
 	services,
 	subscriptions,
 	transactions,
@@ -201,6 +202,12 @@ export function authSyncRoutes(databaseUrl: string) {
 				.delete(subscriptions)
 				.where(eq(subscriptions.businessId, me.businessId));
 			await tx.delete(clients).where(eq(clients.businessId, me.businessId));
+			// itens de kit (0021) apontam pra services sem cascade
+			await tx
+				.delete(serviceKitItems)
+				.where(
+					sql`${serviceKitItems.kitId} IN (SELECT id FROM services WHERE business_id = ${me.businessId})`,
+				);
 			await tx.delete(services).where(eq(services.businessId, me.businessId));
 			await tx.delete(workingHours).where(eq(workingHours.userId, me.id));
 			await tx.delete(deviceTokens).where(eq(deviceTokens.userId, me.id));

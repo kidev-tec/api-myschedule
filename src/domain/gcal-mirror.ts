@@ -56,7 +56,7 @@ function eventBody(input: {
 		d.toISOString().replace(/[-:]/g, "").replace(".000", "");
 	return JSON.stringify({
 		summary: `${input.serviceName} — ${input.clientName}`,
-		description: `Cliente: ${input.clientName}${input.clientPhone ? ` (${input.clientPhone})` : ""}\nVia Minha Agenda`,
+		description: `Cliente: ${input.clientName}${input.clientPhone ? ` (${input.clientPhone})` : ""}\nVia AGENVA`,
 		start: { dateTime: fmt(input.startsAt) },
 		end: { dateTime: fmt(input.endsAt) },
 		reminders: { useDefault: true },
