@@ -72,7 +72,7 @@ async function setupBase(headers: Record<string, string>) {
 			SELECT b.id FROM businesses b JOIN users u ON u.business_id = b.id
 			WHERE u.firebase_uid = ${meUid} LIMIT 1`
 	)[0];
-	if (!biz) throw new Error("business não encontrado");
+	if (!biz) throw new Error("Negócio não encontrado");
 	const client = (
 		await sql<{ id: string }[]>`
 		INSERT INTO clients (business_id, name, phone_e164)

@@ -5,6 +5,7 @@
  *        (mais novas primeiro; `before` pagina pelas mais antigas)
  * - GET  /notifications/unread-count → { unread } (badge do sino)
  * - POST /notifications/:id/read     → marca uma como lida
+ * - POST /notifications/:id/unread   → volta a ser não lida
  * - POST /notifications/read-all     → marca todas como lidas
  *
  * Quem cria é services/notify.ts (todo push pro prestador passa por lá).
@@ -46,13 +47,13 @@ export function notificationRoutes(databaseUrl: string) {
 
 	routes.get("/notifications/unread-count", async (c) => {
 		const me = await meId(c.get("authUser").uid);
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 		return c.json({ unread: await unreadOf(me) });
 	});
 
 	routes.get("/notifications", async (c) => {
 		const me = await meId(c.get("authUser").uid);
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 		const limitRaw = Number(c.req.query("limit") ?? PAGE_DEFAULT);
 		const limit =
 			Number.isInteger(limitRaw) && limitRaw > 0
@@ -90,7 +91,7 @@ export function notificationRoutes(databaseUrl: string) {
 
 	routes.post("/notifications/read-all", async (c) => {
 		const me = await meId(c.get("authUser").uid);
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 		await db
 			.update(notifications)
 			.set({ readAt: new Date() })
@@ -98,19 +99,24 @@ export function notificationRoutes(databaseUrl: string) {
 		return c.json({ unread: 0 });
 	});
 
-	routes.post("/notifications/:id/read", async (c) => {
-		const me = await meId(c.get("authUser").uid);
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
-		const id = c.req.param("id");
-		if (!UUID_RE.test(id)) return c.json({ error: "id inválido" }, 400);
-		const [row] = await db
-			.update(notifications)
-			.set({ readAt: new Date() })
-			.where(and(eq(notifications.id, id), eq(notifications.userId, me)))
-			.returning({ id: notifications.id });
-		if (!row) return c.json({ error: "notificação não encontrada" }, 404);
-		return c.json({ ok: true, unread: await unreadOf(me) });
-	});
+	for (const [action, readAt] of [
+		["read", () => new Date()],
+		["unread", () => null],
+	] as const) {
+		routes.post(`/notifications/:id/${action}`, async (c) => {
+			const me = await meId(c.get("authUser").uid);
+			if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
+			const id = c.req.param("id");
+			if (!UUID_RE.test(id)) return c.json({ error: "Registro inválido" }, 400);
+			const [row] = await db
+				.update(notifications)
+				.set({ readAt: readAt() })
+				.where(and(eq(notifications.id, id), eq(notifications.userId, me)))
+				.returning({ id: notifications.id });
+			if (!row) return c.json({ error: "notificação não encontrada" }, 404);
+			return c.json({ ok: true, unread: await unreadOf(me) });
+		});
+	}
 
 	return routes;
 }

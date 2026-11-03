@@ -235,7 +235,7 @@ describe("ARCHIVE (B3) — arquivado some do futuro, fica no passado", () => {
 		const bizRows = await sql<{ id: string }[]>`
 			SELECT id FROM businesses WHERE name LIKE ${`Pro Teste ${auth.slice(7)}%`} LIMIT 1`;
 		const businessId = bizRows[0]?.id;
-		if (!businessId) throw new Error("business não encontrado");
+		if (!businessId) throw new Error("Negócio não encontrado");
 		const client = await sql<{ id: string }[]>`
 			INSERT INTO clients (business_id, name, phone_e164)
 			VALUES (${businessId}, 'Cli', '+5514999980001') RETURNING id`;

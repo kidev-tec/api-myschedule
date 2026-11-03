@@ -118,7 +118,7 @@ describe("defesa-2 e caminhos de erro de banco", () => {
 		});
 		expect(res.status).toBe(400);
 		expect(((await res.json()) as { error: string }).error).toContain(
-			"nada para atualizar",
+			"Nada para atualizar",
 		);
 	});
 
@@ -430,7 +430,7 @@ describe("defesa-2 e caminhos de erro de banco", () => {
 			});
 			expect(res.status).toBe(404);
 			expect(((await res.json()) as { error: string }).error).toContain(
-				"user não encontrado",
+				"Usuário não encontrado",
 			);
 		});
 
@@ -528,7 +528,7 @@ describe("defesa-2 e caminhos de erro de banco", () => {
 			});
 			expect(res.status).toBe(400);
 			expect(((await res.json()) as { error: string }).error).toContain(
-				"antes de endsAt",
+				"antes do fim",
 			);
 		});
 

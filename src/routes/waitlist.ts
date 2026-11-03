@@ -186,7 +186,7 @@ export function waitlistRoutes(databaseUrl: string) {
 	routes.get("/waitlist", async (c) => {
 		const me = await meOf(c.get("authUser").uid);
 		/* v8 ignore next -- inatingível: auth retorna antes */
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 		const date = c.req.query("date") ?? "";
 		if (!DATE_RE.test(date)) {
 			return c.json({ error: "Escolha o dia da lista de espera" }, 400);
@@ -225,7 +225,7 @@ export function waitlistRoutes(databaseUrl: string) {
 	routes.post("/waitlist", async (c) => {
 		const me = await meOf(c.get("authUser").uid);
 		/* v8 ignore next -- inatingível: auth retorna antes */
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 		const body = (await c.req.json().catch(() => null)) as Body;
 		const date =
 			typeof body?.desired_date === "string" ? body.desired_date.trim() : "";
@@ -274,20 +274,17 @@ export function waitlistRoutes(databaseUrl: string) {
 	routes.patch("/waitlist/:id", async (c) => {
 		const me = await meOf(c.get("authUser").uid);
 		/* v8 ignore next -- inatingível: auth retorna antes */
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 		const id = c.req.param("id");
 		if (!UUID_RE.test(id)) {
-			return c.json({ error: "id inválido" }, 400);
+			return c.json({ error: "Registro inválido" }, 400);
 		}
 		const body = (await c.req.json().catch(() => null)) as {
 			status?: unknown;
 		} | null;
 		const status = body?.status;
 		if (status !== "notified" && status !== "served" && status !== "waiting") {
-			return c.json(
-				{ error: "status inválido (waiting|notified|served)" },
-				400,
-			);
+			return c.json({ error: "Situação inválida" }, 400);
 		}
 		const updated = await db
 			.update(waitlist)
@@ -304,10 +301,10 @@ export function waitlistRoutes(databaseUrl: string) {
 	routes.delete("/waitlist/:id", async (c) => {
 		const me = await meOf(c.get("authUser").uid);
 		/* v8 ignore next -- inatingível: auth retorna antes */
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 		const id = c.req.param("id");
 		if (!UUID_RE.test(id)) {
-			return c.json({ error: "id inválido" }, 400);
+			return c.json({ error: "Registro inválido" }, 400);
 		}
 		const gone = await db
 			.delete(waitlist)

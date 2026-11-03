@@ -64,7 +64,7 @@ export function servicesRoutes(databaseUrl: string) {
 		const me = (
 			await db.select().from(users).where(eq(users.firebaseUid, uid)).limit(1)
 		)[0];
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 		const busca = c.req.query("q")?.trim();
 		const rows = await db
 			.select()
@@ -90,7 +90,7 @@ export function servicesRoutes(databaseUrl: string) {
 			await db.select().from(users).where(eq(users.firebaseUid, uid)).limit(1)
 		)[0];
 		/* v8 ignore next -- inatingível: paywall retorna 404 antes */
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 
 		const body = (await c.req.json().catch(() => null)) as {
 			name?: unknown;
@@ -155,10 +155,10 @@ export function servicesRoutes(databaseUrl: string) {
 		const me = (
 			await db.select().from(users).where(eq(users.firebaseUid, uid)).limit(1)
 		)[0];
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 		const id = c.req.param("id");
 		if (!/^[0-9a-f-]{36}$/i.test(id))
-			return c.json({ error: "id inválido" }, 400);
+			return c.json({ error: "Registro inválido" }, 400);
 		const rows = await db
 			.select()
 			.from(services)
@@ -184,10 +184,10 @@ export function servicesRoutes(databaseUrl: string) {
 			await db.select().from(users).where(eq(users.firebaseUid, uid)).limit(1)
 		)[0];
 		/* v8 ignore next -- inatingível: paywall retorna 404 antes */
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 		const id = c.req.param("id");
 		if (!/^[0-9a-f-]{36}$/i.test(id))
-			return c.json({ error: "id inválido" }, 400);
+			return c.json({ error: "Registro inválido" }, 400);
 
 		const body = (await c.req.json().catch(() => null)) as {
 			name?: unknown;
@@ -220,7 +220,7 @@ export function servicesRoutes(databaseUrl: string) {
 				body.name.trim().length < 1 ||
 				body.name.trim().length > 120
 			)
-				return c.json({ error: "name deve ter 1..120 caracteres" }, 400);
+				return c.json({ error: "O nome deve ter de 1 a 120 caracteres" }, 400);
 			updates.name = body.name.trim();
 		}
 		if (body?.duration_min !== undefined) {
@@ -233,7 +233,7 @@ export function servicesRoutes(databaseUrl: string) {
 		}
 		if (body?.price_cents !== undefined) {
 			if (typeof body.price_cents !== "number" || body.price_cents < 0)
-				return c.json({ error: "price_cents deve ser >= 0" }, 400);
+				return c.json({ error: "O preço não pode ser negativo" }, 400);
 			updates.priceCents = body.price_cents;
 		}
 		// Kit: troca a lista de itens inteira
@@ -281,10 +281,10 @@ export function servicesRoutes(databaseUrl: string) {
 			await db.select().from(users).where(eq(users.firebaseUid, uid)).limit(1)
 		)[0];
 		/* v8 ignore next -- inatingível: paywall retorna 404 antes */
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 		const id = c.req.param("id");
 		if (!/^[0-9a-f-]{36}$/i.test(id))
-			return c.json({ error: "id inválido" }, 400);
+			return c.json({ error: "Registro inválido" }, 400);
 		const [target] = await db
 			.select({ id: services.id })
 			.from(services)
@@ -345,7 +345,7 @@ export function meRoutes(databaseUrl: string) {
 				.where(eq(users.firebaseUid, authUser.uid))
 				.limit(1)
 		)[0];
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 		const biz = (
 			await db
 				.select()
@@ -354,7 +354,7 @@ export function meRoutes(databaseUrl: string) {
 				.limit(1)
 		)[0];
 		/* v8 ignore next -- defensivo: user sempre tem business (FK NOT NULL + sync) */
-		if (!biz) return c.json({ error: "business não encontrado" }, 404);
+		if (!biz) return c.json({ error: "Negócio não encontrado" }, 404);
 		// count() sempre devolve 1 linha — [0] garantido pelo Postgres
 		const svc = (
 			await db
@@ -407,7 +407,7 @@ export function meRoutes(databaseUrl: string) {
 				.limit(1)
 		)[0];
 		/* v8 ignore next -- inatingível: paywall retorna 404 antes */
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 		const biz = (
 			await db
 				.select()
@@ -416,7 +416,7 @@ export function meRoutes(databaseUrl: string) {
 				.limit(1)
 		)[0];
 		/* v8 ignore next -- defensivo: user sempre tem business */
-		if (!biz) return c.json({ error: "business não encontrado" }, 404);
+		if (!biz) return c.json({ error: "Negócio não encontrado" }, 404);
 
 		const MAX_BYTES = 2 * 1024 * 1024;
 		const ALLOWED = new Set(["image/png", "image/jpeg"]);
@@ -459,7 +459,7 @@ export function meRoutes(databaseUrl: string) {
 			await db.select().from(users).where(eq(users.firebaseUid, uid)).limit(1)
 		)[0];
 		/* v8 ignore next -- inatingível: paywall retorna 404 antes */
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 
 		const body = (await c.req.json().catch(() => null)) as {
 			business_name?: unknown;
@@ -474,12 +474,12 @@ export function meRoutes(databaseUrl: string) {
 		let businessName: string | undefined;
 		if (body?.business_name !== undefined) {
 			if (typeof body.business_name !== "string") {
-				return c.json({ error: "business_name deve ser string" }, 400);
+				return c.json({ error: "Informe o nome do negócio" }, 400);
 			}
 			const trimmed = body.business_name.trim();
 			if (trimmed.length < 1 || trimmed.length > 120) {
 				return c.json(
-					{ error: "business_name deve ter 1..120 caracteres" },
+					{ error: "O nome do negócio deve ter de 1 a 120 caracteres" },
 					400,
 				);
 			}
@@ -533,10 +533,7 @@ export function meRoutes(databaseUrl: string) {
 			) {
 				themeColor = body.theme_color.toUpperCase();
 			} else {
-				return c.json(
-					{ error: "theme_color inválido (use #RRGGBB ou null)" },
-					400,
-				);
+				return c.json({ error: "Cor inválida" }, 400);
 			}
 		}
 		// Folga padrão entre atendimentos (0020): minutos, 0..120 de 5 em 5.
@@ -581,7 +578,7 @@ export function meRoutes(databaseUrl: string) {
 				typeof body.business_type !== "string" ||
 				!(SEGMENT_IDS as readonly string[]).includes(body.business_type)
 			) {
-				return c.json({ error: "business_type inválido" }, 400);
+				return c.json({ error: "Segmento inválido" }, 400);
 			}
 			businessType = body.business_type;
 		}
@@ -596,7 +593,7 @@ export function meRoutes(databaseUrl: string) {
 				.limit(1)
 		).at(0);
 		/* v8 ignore next -- defensivo: user sempre tem business (FK NOT NULL + sync) */
-		if (!biz) return c.json({ error: "business não encontrado" }, 404);
+		if (!biz) return c.json({ error: "Negócio não encontrado" }, 404);
 		// A checagem explícita dá 409 amigável; o índice único do banco
 		// (0004) é a defesa final contra corrida.
 		const finalName = businessName ?? biz.name;

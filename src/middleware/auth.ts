@@ -63,7 +63,7 @@ export function firebaseAuthMiddleware(
 		if (!header?.startsWith("Bearer ")) {
 			return c.json(
 				{
-					error: "token ausente",
+					error: "Sessão não encontrada. Entre novamente.",
 					hint: "Envie Authorization: Bearer <idToken do Firebase>",
 				},
 				401,
@@ -81,7 +81,10 @@ export function firebaseAuthMiddleware(
 			await next();
 		} catch {
 			return c.json(
-				{ error: "token inválido ou expirado", hint: "Refaça o login no app" },
+				{
+					error: "Sua sessão expirou. Entre novamente.",
+					hint: "Refaça o login no app",
+				},
 				401,
 			);
 		}
