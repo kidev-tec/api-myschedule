@@ -182,17 +182,157 @@ describe("RF-B — confirmação do cliente via link (token HMAC)", () => {
 		expect(res.status).toBe(404);
 	});
 
-	it("decide inválido ou ausente → 400", async () => {
+	it("decide inválido → 400", async () => {
 		const appt = await createPending();
 		const token = confirmationToken(appt.id, appt.startsAt);
 		const bad = await app.request(
 			`/p/${slug}/confirm/${appt.id}?token=${token}&decide=talvez`,
 		);
 		expect(bad.status).toBe(400);
-		const missing = await app.request(
-			`/p/${slug}/confirm/${appt.id}?token=${token}`,
-		);
-		expect(missing.status).toBe(400);
+	});
+
+	describe("página do link do WhatsApp (sem decide)", () => {
+		const page = (id: string, token: string, s = slug) =>
+			app.request(`/p/${s}/confirm/${id}?token=${token}`);
+		const statusOf = async (id: string) =>
+			(
+				(await sql`SELECT status FROM appointments WHERE id = ${id}`)[0] as {
+					status: string;
+				}
+			).status;
+
+		it("abrir o link mostra os botões e não muda nada", async () => {
+			const appt = await createPending();
+			const token = confirmationToken(appt.id, appt.startsAt);
+			const res = await page(appt.id, token);
+			expect(res.status).toBe(200);
+			expect(res.headers.get("content-type")).toContain("text/html");
+			const html = await res.text();
+			expect(html).toContain("Olá, Confirm! Você vem?");
+			expect(html).toContain("Corte Confirm em Pro Confirm Suite");
+			expect(html).toContain("Vou comparecer");
+			expect(html).toContain("Não vou poder");
+			expect(html).toContain(`decide=confirm`);
+			expect(html).not.toContain("decide inválido");
+			// horário no fuso do negócio, por extenso
+			const when = appt.startsAt.toLocaleString("pt-BR", {
+				weekday: "long",
+				day: "2-digit",
+				month: "long",
+				hour: "2-digit",
+				minute: "2-digit",
+				timeZone: "America/Sao_Paulo",
+			});
+			expect(html).toContain(when);
+			expect(await statusOf(appt.id)).toBe("pending");
+		});
+
+		it("nome do cliente é escapado; sem nome, cumprimenta sem nome", async () => {
+			const appt = await createPending();
+			const token = confirmationToken(appt.id, appt.startsAt);
+			const rename = (name: string) =>
+				sql`UPDATE clients SET name = ${name} WHERE id = ${clientId}`;
+			try {
+				await rename("<b>Zé&'\" Silva");
+				const html = await (await page(appt.id, token)).text();
+				expect(html).toContain("Olá, &lt;b&gt;Zé&amp;&#39;&quot;! Você vem?");
+				await rename("   ");
+				expect(await (await page(appt.id, token)).text()).toContain(
+					"Olá! Você vem?",
+				);
+			} finally {
+				await rename("Confirm Fake");
+			}
+		});
+
+		it("botão Vou comparecer: confirma, volta pra página e não repete", async () => {
+			const appt = await createPending();
+			const token = confirmationToken(appt.id, appt.startsAt);
+			const url = `/p/${slug}/confirm/${appt.id}?token=${token}`;
+			const res = await app.request(`${url}&decide=confirm`, {
+				method: "POST",
+			});
+			expect(res.status).toBe(303);
+			expect(res.headers.get("location")).toBe(url);
+			expect(await statusOf(appt.id)).toBe("confirmed");
+			const html = await (await app.request(url)).text();
+			expect(html).toContain("Presença confirmada!");
+			expect(html).not.toContain("Vou comparecer");
+
+			// já confirmado: "não vou poder" não cancela nem finge que cancelou
+			await app.request(`${url}&decide=cancel`, { method: "POST" });
+			expect(await statusOf(appt.id)).toBe("confirmed");
+		});
+
+		it("botão Não vou poder: cancela e oferece outro horário", async () => {
+			const appt = await createPending();
+			const token = confirmationToken(appt.id, appt.startsAt);
+			const url = `/p/${slug}/confirm/${appt.id}?token=${token}`;
+			await app.request(`${url}&decide=cancel`, { method: "POST" });
+			expect(await statusOf(appt.id)).toBe("canceled");
+			const html = await (await app.request(url)).text();
+			expect(html).toContain("Agendamento cancelado");
+			expect(html).toContain("Agendar outro horário");
+		});
+
+		it("horário que já passou: sem botões e o POST não muda", async () => {
+			const appt = await createPending();
+			const past = new Date(Date.now() - 5 * 86_400_000 + slotSeq * 3_600_000);
+			await sql`UPDATE appointments
+				SET starts_at = ${past}, ends_at = ${new Date(past.getTime() + 1_800_000)}
+				WHERE id = ${appt.id}`;
+			const token = confirmationToken(appt.id, past);
+			const url = `/p/${slug}/confirm/${appt.id}?token=${token}`;
+			const html = await (await app.request(url)).text();
+			expect(html).toContain("Esse horário já passou");
+			expect(html).not.toContain("Vou comparecer");
+			const res = await app.request(`${url}&decide=confirm`, {
+				method: "POST",
+			});
+			expect(res.status).toBe(303);
+			expect(await statusOf(appt.id)).toBe("pending");
+		});
+
+		it("POST sem decide válido só volta pra página", async () => {
+			const appt = await createPending();
+			const token = confirmationToken(appt.id, appt.startsAt);
+			const res = await app.request(
+				`/p/${slug}/confirm/${appt.id}?token=${token}&decide=talvez`,
+				{ method: "POST" },
+			);
+			expect(res.status).toBe(303);
+			expect(await statusOf(appt.id)).toBe("pending");
+		});
+
+		it("link velho (remarcou), id e slug errados: página amigável", async () => {
+			const appt = await createPending();
+			const old = await page(appt.id, "token-velho");
+			expect(old.status).toBe(403);
+			const html = await old.text();
+			expect(html).toContain("Este link não vale mais");
+			expect(html).toContain("Fale com Pro Confirm Suite");
+			const post = await app.request(
+				`/p/${slug}/confirm/${appt.id}?token=velho&decide=confirm`,
+				{ method: "POST" },
+			);
+			expect(post.status).toBe(403);
+			const semToken = await app.request(
+				`/p/${slug}/confirm/${appt.id}?decide=confirm`,
+				{ method: "POST" },
+			);
+			expect(semToken.status).toBe(403);
+			expect(await statusOf(appt.id)).toBe("pending");
+
+			const ghost = "00000000-0000-4000-8000-000000000000";
+			for (const res of [
+				await page(ghost, "x"),
+				await page("nao-e-uuid", "x"),
+				await page(appt.id, "x", "slug-fantasma"),
+			]) {
+				expect(res.status).toBe(404);
+				expect(await res.text()).toContain("Agendamento não encontrado");
+			}
+		});
 	});
 
 	it("token ausente → 403", async () => {

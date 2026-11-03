@@ -72,7 +72,7 @@ export function workingHoursRoutes(databaseUrl: string) {
 		const me = (
 			await db.select().from(users).where(eq(users.firebaseUid, uid)).limit(1)
 		)[0];
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 		const rows = await db
 			.select()
 			.from(workingHours)
@@ -94,7 +94,7 @@ export function workingHoursRoutes(databaseUrl: string) {
 			await db.select().from(users).where(eq(users.firebaseUid, uid)).limit(1)
 		)[0];
 		/* v8 ignore next -- inatingível: paywall retorna 404 antes */
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 
 		const body = (await c.req.json().catch(() => null)) as {
 			slots?: Slot[];
@@ -122,7 +122,7 @@ export function workingHoursRoutes(databaseUrl: string) {
 				start === null ||
 				end === null
 			) {
-				return c.json({ error: `slot inválido: ${JSON.stringify(s)}` }, 400);
+				return c.json({ error: "Horário inválido" }, 400);
 			}
 			if (start >= end) {
 				return c.json(

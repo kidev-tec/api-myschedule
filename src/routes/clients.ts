@@ -130,7 +130,7 @@ export function clientsRoutes(databaseUrl: string) {
 				.where(eq(users.firebaseUid, c.get("authUser").uid))
 				.limit(1)
 		)[0];
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 		const archived = c.req.query("archived") === "1";
 		const rows = await db
 			.select()
@@ -155,7 +155,7 @@ export function clientsRoutes(databaseUrl: string) {
 				.limit(1)
 		)[0];
 		/* v8 ignore next -- inatingível: paywall retorna 404 antes */
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 
 		const body = (await c.req.json().catch(() => null)) as {
 			name?: unknown;
@@ -176,7 +176,7 @@ export function clientsRoutes(databaseUrl: string) {
 		const notes = optionalText(body?.notes);
 		if (name.length < 1 || phone.length < 10) {
 			return c.json(
-				{ error: "name obrigatório e phone_e164 válido (>=10 dígitos)" },
+				{ error: "Informe o nome e um celular válido, com DDD" },
 				400,
 			);
 		}
@@ -217,7 +217,7 @@ export function clientsRoutes(databaseUrl: string) {
 				.limit(1)
 		)[0];
 		/* v8 ignore next -- inatingível: auth retorna antes */
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 		const period = c.req.query("period") ?? "all";
 		const days = period === "30" ? 30 : period === "365" ? 365 : null;
 		if (period !== "all" && days === null) {
@@ -292,9 +292,9 @@ export function clientsRoutes(databaseUrl: string) {
 				.where(eq(users.firebaseUid, c.get("authUser").uid))
 				.limit(1)
 		)[0];
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 		const id = c.req.param("id");
-		if (!UUID_RE.test(id)) return c.json({ error: "id inválido" }, 400);
+		if (!UUID_RE.test(id)) return c.json({ error: "Registro inválido" }, 400);
 		// arquivado também abre (detalhes/observações na agenda)
 		const rows = await db
 			.select()
@@ -321,9 +321,9 @@ export function clientsRoutes(databaseUrl: string) {
 				.limit(1)
 		)[0];
 		/* v8 ignore next -- inatingível: auth retorna antes */
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 		const id = c.req.param("id");
-		if (!UUID_RE.test(id)) return c.json({ error: "id inválido" }, 400);
+		if (!UUID_RE.test(id)) return c.json({ error: "Registro inválido" }, 400);
 
 		// cliente tem que ser do business do prestador (arquivado também:
 		// o histórico nunca se perde)
@@ -398,9 +398,9 @@ export function clientsRoutes(databaseUrl: string) {
 				.limit(1)
 		)[0];
 		/* v8 ignore next -- inatingível: paywall retorna 404 antes */
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 		const id = c.req.param("id");
-		if (!UUID_RE.test(id)) return c.json({ error: "id inválido" }, 400);
+		if (!UUID_RE.test(id)) return c.json({ error: "Registro inválido" }, 400);
 
 		const body = (await c.req.json().catch(() => null)) as {
 			name?: unknown;
@@ -415,13 +415,16 @@ export function clientsRoutes(databaseUrl: string) {
 			typeof body?.phone_e164 === "string" ? body.phone_e164.trim() : "";
 		if (name.length < 1 || phone.length < 10) {
 			return c.json(
-				{ error: "name obrigatório e phone_e164 válido (>=10 dígitos)" },
+				{ error: "Informe o nome e um celular válido, com DDD" },
 				400,
 			);
 		}
 		// deleted_at nunca editável via PATCH (soft-delete só via DELETE)
 		if (body?.deleted_at !== undefined) {
-			return c.json({ error: "deleted_at não é editável" }, 400);
+			return c.json(
+				{ error: "Para arquivar o cliente, use a opção Arquivar" },
+				400,
+			);
 		}
 		const email = optionalText(body?.email);
 		const birthday = optionalText(body?.birthday);
@@ -492,9 +495,9 @@ export function clientsRoutes(databaseUrl: string) {
 				.limit(1)
 		)[0];
 		/* v8 ignore next -- inatingível: auth retorna antes */
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 		const id = c.req.param("id");
-		if (!UUID_RE.test(id)) return c.json({ error: "id inválido" }, 400);
+		if (!UUID_RE.test(id)) return c.json({ error: "Registro inválido" }, 400);
 		const rows = await upcomingOf(me.businessId, id);
 		return c.json({
 			upcoming: rows.map((r) => ({
@@ -514,9 +517,9 @@ export function clientsRoutes(databaseUrl: string) {
 				.limit(1)
 		)[0];
 		/* v8 ignore next -- inatingível: paywall retorna 404 antes */
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 		const id = c.req.param("id");
-		if (!UUID_RE.test(id)) return c.json({ error: "id inválido" }, 400);
+		if (!UUID_RE.test(id)) return c.json({ error: "Registro inválido" }, 400);
 		const cancelFuture = c.req.query("cancel_future") === "1";
 		const result = await db.transaction(async (tx) => {
 			const [upd] = await tx
@@ -578,9 +581,9 @@ export function clientsRoutes(databaseUrl: string) {
 				.limit(1)
 		)[0];
 		/* v8 ignore next -- inatingível: paywall retorna 404 antes */
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 		const id = c.req.param("id");
-		if (!UUID_RE.test(id)) return c.json({ error: "id inválido" }, 400);
+		if (!UUID_RE.test(id)) return c.json({ error: "Registro inválido" }, 400);
 		const [row] = await db
 			.select()
 			.from(clients)

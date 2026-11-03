@@ -111,7 +111,7 @@ export function gcalRoutes(databaseUrl: string) {
 		const me = (
 			await db.select().from(users).where(eq(users.firebaseUid, uid)).limit(1)
 		)[0];
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 		const biz = (
 			await db
 				.select({ gcal: businesses.gcalConnectedAt })
@@ -128,7 +128,7 @@ export function gcalRoutes(databaseUrl: string) {
 			await db.select().from(users).where(eq(users.firebaseUid, uid)).limit(1)
 		)[0];
 		/* v8 ignore next -- inatingível: paywall/404 pega ghost antes */
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 		await db
 			.update(businesses)
 			.set({ gcalRefreshToken: null, gcalConnectedAt: null })

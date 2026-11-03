@@ -57,7 +57,7 @@ export function billingRoutes(databaseUrl: string) {
 				.limit(1)
 		)[0];
 		/* v8 ignore next -- inatingível: paywall/auth retorna antes */
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 
 		const biz = (
 			await db

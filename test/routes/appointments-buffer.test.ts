@@ -34,8 +34,13 @@ function authed(u: string) {
 	return { Authorization: `Bearer ${u}` };
 }
 
-// segunda-feira 2026-11-02, janela local 09:00-18:00 (UTC-3)
-const MON = "2026-11-02";
+// próxima segunda-feira (data fixa vence e o link público recusa horário
+// passado), janela local 09:00-18:00 (UTC-3)
+const MON = (() => {
+	const d = new Date(Date.now() + 86_400_000);
+	while (d.getUTCDay() !== 1) d.setUTCDate(d.getUTCDate() + 1);
+	return d.toISOString().slice(0, 10);
+})();
 const at = (utc: string) => `${MON}T${utc}:00.000Z`;
 
 beforeAll(async () => {
