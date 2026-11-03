@@ -215,7 +215,7 @@ describe("PATCH /v1/clients/:id", () => {
 		});
 		expect(res.status).toBe(400);
 		const body = (await res.json()) as { error: string };
-		expect(body.error).toContain("deleted_at");
+		expect(body.error).toContain("Arquivar");
 	});
 
 	it("404 — id inexistente", async () => {

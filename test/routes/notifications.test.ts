@@ -221,6 +221,22 @@ describe("rotas /v1/notifications", () => {
 		).json()) as { unread: number };
 		expect(cnt.unread).toBe(2);
 
+		// volta a ser não lida: contagem sobe e a lista mostra
+		const un = await req(uids.a, "POST", `/v1/notifications/${id}/unread`);
+		expect(un.status).toBe(200);
+		expect(((await un.json()) as { unread: number }).unread).toBe(3);
+		const relist = (await (
+			await req(uids.a, "GET", "/v1/notifications")
+		).json()) as { notifications: N[] };
+		expect(relist.notifications[0]?.read).toBe(false);
+		expect(
+			(await req(uids.b, "POST", `/v1/notifications/${id}/unread`)).status,
+		).toBe(404);
+		expect(
+			(await req(uids.a, "POST", "/v1/notifications/x/unread")).status,
+		).toBe(400);
+		await req(uids.a, "POST", `/v1/notifications/${id}/read`);
+
 		// B não marca a do A; id ruim = 400
 		expect(
 			(await req(uids.b, "POST", `/v1/notifications/${id}/read`)).status,

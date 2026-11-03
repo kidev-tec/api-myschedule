@@ -234,7 +234,7 @@ export function appointmentRoutes(databaseUrl: string) {
 		if (!user) return c.json({ error: "usuário não sincronizado" }, 403);
 
 		const body = (await c.req.json().catch(() => null)) as CreateBody | null;
-		if (!body) return c.json({ error: "body inválido (JSON esperado)" }, 400);
+		if (!body) return c.json({ error: "Dados inválidos" }, 400);
 
 		const { startsAt, endsAt } = body;
 		const professionalId = isUuid(body.userId) ? body.userId : user.id;
@@ -255,7 +255,7 @@ export function appointmentRoutes(databaseUrl: string) {
 		} else if (Array.isArray(body.serviceIds) && body.serviceIds.length > 1) {
 			// 0022: vários serviços num horário só → kit oculto "A + B"
 			if (!isUuid(body.clientId)) {
-				return c.json({ error: "clientId é obrigatório (uuid)" }, 400);
+				return c.json({ error: "Escolha o cliente" }, 400);
 			}
 			clientId = body.clientId;
 			const combo = await resolveCombo(db, user.businessId, body.serviceIds);
@@ -267,10 +267,7 @@ export function appointmentRoutes(databaseUrl: string) {
 				? body.serviceIds[0]
 				: body.serviceId;
 			if (!isUuid(body.clientId) || !isUuid(oneId)) {
-				return c.json(
-					{ error: "clientId e serviceId são obrigatórios (uuid)" },
-					400,
-				);
+				return c.json({ error: "Escolha o cliente e o serviço" }, 400);
 			}
 			clientId = body.clientId;
 			serviceId = oneId;
@@ -299,10 +296,7 @@ export function appointmentRoutes(databaseUrl: string) {
 
 		const start = parseDate(startsAt);
 		if (!start) {
-			return c.json(
-				{ error: "startsAt/endsAt inválidos (ISO 8601 esperado)" },
-				400,
-			);
+			return c.json({ error: "Data ou hora inválida" }, 400);
 		}
 
 		// duração flexível (SPEC v1.0.0): duration_min preferred; endsAt legado.
@@ -326,8 +320,7 @@ export function appointmentRoutes(databaseUrl: string) {
 			if (!resolved) {
 				return c.json(
 					{
-						error:
-							"duration_min e endsAt divergem (endsAt deve ser startsAt + duration_min)",
+						error: "A duração não bate com o horário de término",
 					},
 					400,
 				);
@@ -336,16 +329,13 @@ export function appointmentRoutes(databaseUrl: string) {
 		} else if (hasEndsAt) {
 			end = parseDate(body.endsAt);
 			if (!end) {
-				return c.json(
-					{ error: "startsAt/endsAt inválidos (ISO 8601 esperado)" },
-					400,
-				);
+				return c.json({ error: "Data ou hora inválida" }, 400);
 			}
 		} else {
-			return c.json({ error: "informe duration_min (ou endsAt legado)" }, 400);
+			return c.json({ error: "Informe a duração do atendimento" }, 400);
 		}
 		if (start >= end) {
-			return c.json({ error: "startsAt deve ser antes de endsAt" }, 400);
+			return c.json({ error: "O início deve ser antes do fim" }, 400);
 		}
 
 		// Compatibilidade: legado startsAt+endsAt mantém contrato anterior.
@@ -525,7 +515,7 @@ export function appointmentRoutes(databaseUrl: string) {
 		if (!user) return c.json({ error: "usuário não sincronizado" }, 403);
 
 		const id = c.req.param("id");
-		if (!isUuid(id)) return c.json({ error: "id inválido" }, 400);
+		if (!isUuid(id)) return c.json({ error: "Registro inválido" }, 400);
 
 		const [appt] = await db
 			.select({ startsAt: appointments.startsAt })
@@ -546,7 +536,7 @@ export function appointmentRoutes(databaseUrl: string) {
 			.where(eq(businesses.id, user.businessId))
 			.limit(1);
 		/* v8 ignore next -- user.businessId sempre aponta pra business existente */
-		if (!biz) return c.json({ error: "business não encontrado" }, 404);
+		if (!biz) return c.json({ error: "Negócio não encontrado" }, 404);
 
 		const token = confirmationToken(id, appt.startsAt);
 		// split sempre retorna ≥1 elemento; ?? só satisfaz o typechecker
@@ -563,7 +553,7 @@ export function appointmentRoutes(databaseUrl: string) {
 		if (!user) return c.json({ error: "usuário não sincronizado" }, 403);
 
 		const id = c.req.param("id");
-		if (!isUuid(id)) return c.json({ error: "id inválido" }, 400);
+		if (!isUuid(id)) return c.json({ error: "Registro inválido" }, 400);
 
 		const body = (await c.req.json().catch(() => null)) as {
 			status?: unknown;
@@ -574,7 +564,7 @@ export function appointmentRoutes(databaseUrl: string) {
 			canceledReason?: unknown;
 			notes?: unknown;
 		} | null;
-		if (!body) return c.json({ error: "body inválido" }, 400);
+		if (!body) return c.json({ error: "Dados inválidos" }, 400);
 
 		const [current] = await db
 			.select()
@@ -601,7 +591,7 @@ export function appointmentRoutes(databaseUrl: string) {
 				body.status !== "done" &&
 				body.status !== "confirmed"
 			) {
-				return c.json({ error: "status inválido" }, 400);
+				return c.json({ error: "Situação inválida" }, 400);
 			}
 			// Regras de status x horário (revisão 28/10 da decisão 21/09):
 			// - cancelar: a qualquer momento;
@@ -682,8 +672,7 @@ export function appointmentRoutes(databaseUrl: string) {
 				if (!resolved) {
 					return c.json(
 						{
-							error:
-								"duration_min e endsAt divergem (endsAt deve ser startsAt + duration_min)",
+							error: "A duração não bate com o horário de término",
 						},
 						400,
 					);
@@ -699,7 +688,7 @@ export function appointmentRoutes(databaseUrl: string) {
 				end = new Date(start.getTime() + durMs);
 			}
 			if (start >= end)
-				return c.json({ error: "startsAt deve ser antes de endsAt" }, 400);
+				return c.json({ error: "O início deve ser antes do fim" }, 400);
 
 			// Compatibilidade: PATCH legado não ganha nova restrição.
 			// duration_min ativa validação integral de jornada (SPEC v1.0.0).
@@ -793,10 +782,7 @@ export function appointmentRoutes(databaseUrl: string) {
 			patch.status === undefined;
 
 		if (Object.keys(patch).length === 0) {
-			return c.json(
-				{ error: "nada para atualizar (status/startsAt/endsAt/notes)" },
-				400,
-			);
+			return c.json({ error: "Nada para atualizar" }, 400);
 		}
 
 		try {

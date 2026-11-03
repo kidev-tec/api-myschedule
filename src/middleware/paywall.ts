@@ -75,7 +75,7 @@ export function requireWritableFactory(databaseUrl: string) {
 	): Promise<globalThis.Response | undefined> {
 		const db: Db = getDb(databaseUrl);
 		const gate = await loadBusinessGate(db, c.get("authUser").uid);
-		if (!gate) return c.json({ error: "user não encontrado" }, 404);
+		if (!gate) return c.json({ error: "Usuário não encontrado" }, 404);
 		if (!canWrite(gate)) {
 			return c.json(
 				{

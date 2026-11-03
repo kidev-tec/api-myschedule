@@ -94,7 +94,7 @@ async function createBusinessWithCustomer(
 		.where(eq(businesses.id, bizId))
 		.returning({ id: businesses.id });
 	const biz = rows[0];
-	if (!biz) throw new Error("business não encontrado");
+	if (!biz) throw new Error("Negócio não encontrado");
 	return biz.id;
 }
 

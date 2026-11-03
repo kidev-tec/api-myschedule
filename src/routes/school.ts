@@ -106,7 +106,7 @@ export function schoolRoutes(databaseUrl: string) {
 				body.business_id,
 			)
 		) {
-			return c.json({ error: "business_id inválido" }, 400);
+			return c.json({ error: "Negócio inválido" }, 400);
 		}
 		// days: estende trial (modo cortesia). Sem days: ativa assinatura paga.
 		let days: number | null = null;
@@ -117,7 +117,7 @@ export function schoolRoutes(databaseUrl: string) {
 				body.days < 1 ||
 				body.days > 365
 			) {
-				return c.json({ error: "days deve ser inteiro 1..365" }, 400);
+				return c.json({ error: "O período deve ser de 1 a 365 dias" }, 400);
 			}
 			days = body.days;
 		}
@@ -127,7 +127,7 @@ export function schoolRoutes(databaseUrl: string) {
 			.from(businesses)
 			.where(eq(businesses.id, body.business_id))
 			.limit(1);
-		if (!biz) return c.json({ error: "business não encontrado" }, 404);
+		if (!biz) return c.json({ error: "Negócio não encontrado" }, 404);
 
 		const now = new Date();
 		if (days === null) {

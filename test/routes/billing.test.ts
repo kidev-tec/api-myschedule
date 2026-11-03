@@ -183,7 +183,7 @@ describe("POST /v1/billing/checkout", () => {
 			.where(eq(users.firebaseUid, u))
 			.limit(1);
 		const biz = rows[0];
-		if (!biz) throw new Error("business não encontrado");
+		if (!biz) throw new Error("Negócio não encontrado");
 		expect(biz.cid).toBe("cus_new");
 		expect(biz.sid).toBe("sub_new");
 

@@ -37,7 +37,7 @@ export function timeOffRoutes(databaseUrl: string) {
 				.limit(1)
 		)[0];
 		/* v8 ignore next -- inatingível: auth retorna antes */
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 
 		const rows = await db
 			.select()
@@ -68,7 +68,7 @@ export function timeOffRoutes(databaseUrl: string) {
 				.limit(1)
 		)[0];
 		/* v8 ignore next -- inatingível: auth retorna antes */
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 
 		const body = (await c.req.json().catch(() => null)) as {
 			starts_at?: unknown;
@@ -76,15 +76,12 @@ export function timeOffRoutes(databaseUrl: string) {
 			reason?: unknown;
 		} | null;
 		if (!isIsoDate(body?.starts_at) || !isIsoDate(body?.ends_at)) {
-			return c.json(
-				{ error: "starts_at e ends_at são obrigatórios (ISO 8601)" },
-				400,
-			);
+			return c.json({ error: "Informe o início e o fim" }, 400);
 		}
 		const startsAt = new Date(body!.starts_at!);
 		const endsAt = new Date(body!.ends_at!);
 		if (endsAt <= startsAt) {
-			return c.json({ error: "ends_at deve ser depois de starts_at" }, 400);
+			return c.json({ error: "O fim deve ser depois do início" }, 400);
 		}
 		const reason =
 			typeof body?.reason === "string" && body.reason.trim()
@@ -149,10 +146,10 @@ export function timeOffRoutes(databaseUrl: string) {
 				.limit(1)
 		)[0];
 		/* v8 ignore next -- inatingível: auth retorna antes */
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 		const id = c.req.param("id");
 		if (!/^[0-9a-f-]{36}$/i.test(id)) {
-			return c.json({ error: "id inválido" }, 400);
+			return c.json({ error: "Registro inválido" }, 400);
 		}
 		const deleted = await db
 			.delete(timeOffsTable)

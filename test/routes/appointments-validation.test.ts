@@ -75,7 +75,7 @@ describe("validações /v1/appointments (400/404/403)", () => {
 		});
 		expect(res.status).toBe(400);
 		expect(((await res.json()) as { error: string }).error).toContain(
-			"body inválido",
+			"Dados inválidos",
 		);
 	});
 
@@ -94,7 +94,7 @@ describe("validações /v1/appointments (400/404/403)", () => {
 		});
 		expect(res.status).toBe(400);
 		expect(((await res.json()) as { error: string }).error).toContain(
-			"clientId e serviceId",
+			"Escolha o cliente e o serviço",
 		);
 	});
 
@@ -113,7 +113,7 @@ describe("validações /v1/appointments (400/404/403)", () => {
 		});
 		expect(res.status).toBe(400);
 		expect(((await res.json()) as { error: string }).error).toContain(
-			"startsAt/endsAt",
+			"Data ou hora inválida",
 		);
 	});
 
@@ -230,7 +230,7 @@ describe("validações /v1/appointments (400/404/403)", () => {
 		});
 		expect(res.status).toBe(400);
 		expect(((await res.json()) as { error: string }).error).toContain(
-			"antes de",
+			"antes do fim",
 		);
 	});
 
@@ -289,7 +289,7 @@ describe("validações /v1/appointments (400/404/403)", () => {
 		});
 		expect(res.status).toBe(400);
 		expect(((await res.json()) as { error: string }).error).toContain(
-			"nada para atualizar",
+			"Nada para atualizar",
 		);
 	});
 

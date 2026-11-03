@@ -34,7 +34,7 @@ export function deviceRoutes(databaseUrl: string) {
 				.limit(1)
 		)[0];
 		/* v8 ignore next -- inatingível: paywall/auth retorna antes */
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 
 		const body = (await c.req.json().catch(() => null)) as {
 			fcmToken?: unknown;
@@ -44,7 +44,7 @@ export function deviceRoutes(databaseUrl: string) {
 			typeof body?.fcmToken === "string" ? body.fcmToken.trim() : "";
 		const platform = body?.platform;
 		if (token.length < 10) {
-			return c.json({ error: "fcmToken inválido" }, 400);
+			return c.json({ error: "Dispositivo inválido" }, 400);
 		}
 		if (platform !== "android" && platform !== "ios") {
 			return c.json({ error: "platform deve ser android ou ios" }, 400);
@@ -66,7 +66,7 @@ export function deviceRoutes(databaseUrl: string) {
 		const token =
 			typeof body?.fcmToken === "string" ? body.fcmToken.trim() : "";
 		if (token.length < 10) {
-			return c.json({ error: "fcmToken inválido" }, 400);
+			return c.json({ error: "Dispositivo inválido" }, 400);
 		}
 		await db.delete(deviceTokens).where(eq(deviceTokens.fcmToken, token));
 		return c.body(null, 204);

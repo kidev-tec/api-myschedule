@@ -177,7 +177,7 @@ export function authSyncRoutes(databaseUrl: string) {
 		)[0];
 		/* v8 ignore next -- atingível (teste 404 abaixo cobre), mas o v8 coverage
 		   com pool: forks desloca coveredBy entre workers neste arquivo */
-		if (!me) return c.json({ error: "user não encontrado" }, 404);
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
 
 		await db.transaction(async (tx) => {
 			// ordem FK: netos → filhos → business/user por último

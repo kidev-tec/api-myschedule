@@ -316,7 +316,7 @@ describe("POST/PATCH — validações de entrada da duração", () => {
 		const res = await post(h, { ...ids, startsAt: at("12:00") });
 		expect(res.status).toBe(400);
 		expect(((await res.json()) as { error: string }).error).toContain(
-			"duration_min",
+			"Informe a duração",
 		);
 	});
 

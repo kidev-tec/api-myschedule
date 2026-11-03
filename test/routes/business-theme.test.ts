@@ -109,7 +109,7 @@ describe("cor do tema do negócio (theme_color)", () => {
 			const r = await patch(h, { theme_color: v });
 			expect(r.status).toBe(400);
 			expect(((await r.json()) as { error: string }).error).toContain(
-				"#RRGGBB",
+				"Cor inválida",
 			);
 		},
 	);

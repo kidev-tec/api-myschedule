@@ -39,7 +39,7 @@ describe("firebaseAuthMiddleware", () => {
 		const res = await makeApp().request("/ping");
 		expect(res.status).toBe(401);
 		const body = (await res.json()) as { error: string };
-		expect(body.error).toBe("token ausente");
+		expect(body.error).toBe("Sessão não encontrada. Entre novamente.");
 	});
 
 	it("401 quando header não é Bearer", async () => {

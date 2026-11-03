@@ -114,7 +114,7 @@ describe("PATCH /v1/me", () => {
 		});
 		expect(res.status).toBe(400);
 		const body = (await res.json()) as { error: string };
-		expect(body.error).toContain("string");
+		expect(body.error).toContain("nome do negócio");
 	});
 
 	it("400 nada para atualizar com body vazio", async () => {
@@ -742,7 +742,7 @@ describe("/v1/clients", () => {
 			return { uid: token, email: `${token}@t.com`, name: "Pro Teste" };
 		});
 		const ghost = { Authorization: `Bearer ${ghostUid}` };
-		// serviços: branches remanescentes — "user não encontrado" no GET e DELETE por id
+		// serviços: branches remanescentes — "Usuário não encontrado" no GET e DELETE por id
 		expect(
 			(
 				await app.request("/v1/services/00000000-0000-4000-8000-000000000000", {
