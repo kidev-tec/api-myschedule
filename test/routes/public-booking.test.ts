@@ -491,9 +491,18 @@ describe("RF-07: link público de agendamento", () => {
 		const res = await app.request("/p/slug-que-nao-existe");
 		const html = await res.text();
 		const dados = html.indexOf("<label>1. Seus dados</label>");
-		const servicos = html.indexOf("<label>2. Escolha o(s) serviço(s)</label>");
+		// 0026: numeração segue o link — 2 no independente, 3 no agregador
+		// (que ganha "2. Escolha o profissional" antes dos serviços)
+		const profissional = html.indexOf(
+			"<label>2. Escolha o profissional</label>",
+		);
+		const servicos = html.indexOf(
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: é o JS da página
+			"<label>${PROS?3:2}. Escolha o(s) serviço(s)</label>",
+		);
 		expect(dados).toBeGreaterThan(0);
-		expect(servicos).toBeGreaterThan(dados);
+		expect(profissional).toBeGreaterThan(dados);
+		expect(servicos).toBeGreaterThan(profissional);
 		expect(html).toContain('placeholder="Seu nome"');
 		expect(html).not.toContain("Teus dados");
 

@@ -23,6 +23,7 @@ import {
 	isNull,
 	lt,
 	lte,
+	or,
 	sql,
 } from "drizzle-orm";
 import { Hono } from "hono";
@@ -40,8 +41,19 @@ import { overlaps } from "../domain/booking.js";
 import { verifyConfirmationToken } from "../domain/confirmation-token.js";
 import { occupiedEnd } from "../domain/duration.js";
 import { phoneDigitsBr, phoneMatchKeys } from "../domain/phone-br.js";
+import { proLabel } from "../domain/pro-label.js";
 import { kitItemsFor, resolveCombo } from "../domain/service-kits.js";
 import { notify } from "../services/notify.js";
+import {
+	canWrite,
+	isAggregator,
+	listProfessionals,
+	loadPage,
+	type PublicPage,
+	type PublicProfessional,
+	type PublicTarget,
+	resolveTarget,
+} from "../services/public-target.js";
 
 function isUuid(v: unknown): v is string {
 	return (
@@ -74,53 +86,55 @@ type Loaded = {
 	pro: typeof users.$inferSelect;
 } | null;
 
+/** Dono do link (confirmação de presença usa o slug do próprio profissional). */
 async function loadBySlug(db: Db, slug: string): Promise<Loaded> {
-	const biz = (
-		await db.select().from(businesses).where(eq(businesses.slug, slug)).limit(1)
-	)[0];
-	if (!biz) return null;
-	// primeiro usuário do business = profissional dono do link (MVP: 1 prof)
-	const pro = (
-		await db.select().from(users).where(eq(users.businessId, biz.id)).limit(1)
-	)[0];
-	/* v8 ignore next 3 -- inatingível: todo business nasce com user (sync atômico) */
-	if (!pro) return null;
-	return { biz, pro };
+	const page = await loadPage(db, slug);
+	return page ? { biz: page.biz, pro: page.owner } : null;
 }
 
-function canWrite(status: string | null, trialEndsAt: Date | null): boolean {
-	if (status === "active") return true;
-	if (status === "trial")
-		return trialEndsAt === null || trialEndsAt > new Date();
-	return false;
-}
-
+/**
+ * JSON do /info. Página = business do slug (nome, endereço, segmento).
+ * Agenda = target (fuso, folga, profissional). Agregador sem profissional
+ * escolhido: target null → catálogo vazio, só o seletor.
+ */
 function infoJson(
-	loaded: NonNullable<Loaded>,
+	page: PublicPage,
+	target: PublicTarget | null,
 	svc: unknown[],
 	hours: unknown[],
+	professionals: PublicProfessional[],
 ) {
+	const agenda = target?.biz ?? page.biz;
 	return {
 		business: {
-			name: loaded.biz.name,
-			business_type: loaded.biz.businessType,
-			timezone: loaded.biz.timezone,
+			name: page.biz.name,
+			business_type: page.biz.businessType,
+			timezone: agenda.timezone,
 			// 0020: folga após cada atendimento — a grade de slots soma isso
-			buffer_min: loaded.biz.bufferMin,
+			buffer_min: agenda.bufferMin,
 			// endereço (F1): onde o atendimento acontece — cada campo pode ser
 			// null (business sem endereço cadastrado não exibe a linha)
 			address: {
-				street: loaded.biz.addressStreet,
-				number: loaded.biz.addressNumber,
-				district: loaded.biz.addressDistrict,
-				city: loaded.biz.addressCity,
-				state: loaded.biz.addressState,
-				zip: loaded.biz.addressZip,
+				street: page.biz.addressStreet,
+				number: page.biz.addressNumber,
+				district: page.biz.addressDistrict,
+				city: page.biz.addressCity,
+				state: page.biz.addressState,
+				zip: page.biz.addressZip,
 			},
 		},
-		professional: { name: loaded.pro.name },
+		// agregador: nome + negócio (vários profissionais na mesma página);
+		// independente: como sempre foi
+		professional: {
+			name:
+				target && isAggregator(page)
+					? proLabel(target.pro.name, target.biz.name)
+					: (target?.pro.name ?? page.biz.name),
+		},
 		services: svc,
 		working_hours: hours,
+		// 0026: só no link de agregador (seletor de profissional)
+		...(isAggregator(page) ? { professionals } : {}),
 	};
 }
 
@@ -131,8 +145,18 @@ export function publicBookingRoutes(databaseUrl: string) {
 	// ---- JSON: perfil + serviços + horários
 	routes.get("/p/:slug/info", async (c) => {
 		const slug = c.req.param("slug");
-		const loaded = await loadBySlug(db, slug);
-		if (!loaded) return c.json({ error: "link não encontrado" }, 404);
+		const page = await loadPage(db, slug);
+		if (!page) return c.json({ error: "link não encontrado" }, 404);
+		const professionals = await listProfessionals(db, page);
+		const chosen = c.req.query("professional");
+		// agregador sem escolha: só o seletor
+		if (isAggregator(page) && !chosen) {
+			return c.json(infoJson(page, null, [], [], professionals));
+		}
+		const loaded = await resolveTarget(db, page, chosen);
+		if ("error" in loaded) {
+			return c.json({ error: loaded.error }, loaded.status);
+		}
 
 		const svc = await db
 			.select({
@@ -165,6 +189,7 @@ export function publicBookingRoutes(databaseUrl: string) {
 
 		return c.json(
 			infoJson(
+				page,
 				loaded,
 				svc.map((s) =>
 					s.is_kit
@@ -182,6 +207,7 @@ export function publicBookingRoutes(databaseUrl: string) {
 						: s,
 				),
 				hours,
+				professionals,
 			),
 		);
 	});
@@ -195,14 +221,16 @@ export function publicBookingRoutes(databaseUrl: string) {
 		}
 
 		const slug = c.req.param("slug");
-		const loaded = await loadBySlug(db, slug);
-		if (!loaded) return c.json({ error: "link não encontrado" }, 404);
-
-		if (!canWrite(loaded.biz.subscriptionStatus, loaded.biz.trialEndsAt)) {
-			return c.json(
+		const page = await loadPage(db, slug);
+		if (!page) return c.json({ error: "link não encontrado" }, 404);
+		const unavailable = () =>
+			c.json(
 				{ error: "agenda temporariamente indisponível para novos horários" },
 				402,
 			);
+		// D5: no link do agregador, o agregador também precisa estar em dia
+		if (!canWrite(page.biz.subscriptionStatus, page.biz.trialEndsAt)) {
+			return unavailable();
 		}
 
 		const body = (await c.req.json().catch(() => null)) as {
@@ -212,7 +240,17 @@ export function publicBookingRoutes(databaseUrl: string) {
 			service_ids?: unknown;
 			starts_at?: unknown;
 			duration_min?: unknown;
+			professional_id?: unknown;
 		} | null;
+		const loaded = await resolveTarget(db, page, body?.professional_id);
+		if ("error" in loaded) {
+			return c.json({ error: loaded.error }, loaded.status);
+		}
+		/* v8 ignore next 3 -- independente/dono: já checado acima (mesmo business);
+		   profissional vencido nem aparece no seletor (visibleLinks filtra) */
+		if (!canWrite(loaded.biz.subscriptionStatus, loaded.biz.trialEndsAt)) {
+			return unavailable();
+		}
 		// Público deriva estritamente do serviço: não aceita override de duração.
 		if (body?.duration_min !== undefined) {
 			return c.json(
@@ -356,6 +394,8 @@ export function publicBookingRoutes(databaseUrl: string) {
 				bufferMin,
 				status: "pending",
 				source: "public_link",
+				// 0026: veio pelo link de um agregador
+				aggregatorBusinessId: loaded.aggregator?.id ?? null,
 			})
 			.returning();
 
@@ -384,6 +424,17 @@ export function publicBookingRoutes(databaseUrl: string) {
 			},
 		});
 
+		// D3: agregador fica sabendo (sem dados do cliente)
+		if (loaded.aggregator) {
+			void notify(databaseUrl, {
+				userId: page.owner.id,
+				type: "aggregator_booking",
+				title: "Novo agendamento pelo seu link",
+				body: `${proLabel(loaded.pro.name, loaded.biz.name)} — ${svc.name} em ${when}`,
+				data: { starts_at: created.startsAt.toISOString() },
+			});
+		}
+
 		return c.json(
 			{
 				id: created.id,
@@ -391,7 +442,10 @@ export function publicBookingRoutes(databaseUrl: string) {
 				starts_at: created.startsAt,
 				ends_at: created.endsAt,
 				service: svc.name,
-				business: loaded.biz.name,
+				business: page.biz.name,
+				professional: isAggregator(page)
+					? proLabel(loaded.pro.name, loaded.biz.name)
+					: loaded.pro.name,
 			},
 			201,
 		);
@@ -400,8 +454,12 @@ export function publicBookingRoutes(databaseUrl: string) {
 	// ---- intervalos ocupados do dia (pro filtro de slots client-side)
 	routes.get("/p/:slug/busy", async (c) => {
 		const slug = c.req.param("slug");
-		const loaded = await loadBySlug(db, slug);
-		if (!loaded) return c.json({ error: "link não encontrado" }, 404);
+		const page = await loadPage(db, slug);
+		if (!page) return c.json({ error: "link não encontrado" }, 404);
+		const loaded = await resolveTarget(db, page, c.req.query("professional"));
+		if ("error" in loaded) {
+			return c.json({ error: loaded.error }, loaded.status);
+		}
 
 		const dateStr = c.req.query("date") ?? "";
 		const dayStart = new Date(`${dateStr}T00:00:00`);
@@ -465,6 +523,7 @@ export function publicBookingRoutes(databaseUrl: string) {
 		const slug = c.req.param("slug");
 		const loaded = await loadBySlug(db, slug);
 		if (!loaded) return c.json({ error: "link não encontrado" }, 404);
+		const bizId = loaded.biz.id;
 		const apptId = c.req.param("appointmentId");
 		if (
 			!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
@@ -480,7 +539,12 @@ export function publicBookingRoutes(databaseUrl: string) {
 				.where(
 					and(
 						eq(appointments.id, apptId),
-						eq(appointments.businessId, loaded.biz.id),
+						// 0026: no link do agregador o agendamento mora no
+						// business do profissional — vale pela origem
+						or(
+							eq(appointments.businessId, bizId),
+							eq(appointments.aggregatorBusinessId, bizId),
+						),
 					),
 				)
 				.limit(1)
@@ -493,6 +557,21 @@ export function publicBookingRoutes(databaseUrl: string) {
 				.where(eq(services.id, appt.serviceId))
 				.limit(1)
 		)[0];
+		// profissional do agendamento (no agregador, não é o dono do link)
+		const pro = (
+			await db
+				.select({ name: users.name, bizName: businesses.name })
+				.from(users)
+				.innerJoin(businesses, eq(businesses.id, users.businessId))
+				.where(eq(users.id, appt.userId))
+				.limit(1)
+		)[0];
+		/* v8 ignore next 4 -- fallback defensivo: FK appointments→users garante a linha */
+		const proName = !pro
+			? loaded.pro.name
+			: appt.aggregatorBusinessId === loaded.biz.id
+				? proLabel(pro.name, pro.bizName) // veio pelo agregador
+				: pro.name;
 
 		const fmt = (d: Date) =>
 			d.toISOString().replace(/[-:]/g, "").replace(/\.000/, "");
@@ -510,7 +589,7 @@ export function publicBookingRoutes(databaseUrl: string) {
 			`DTSTART:${fmt(appt.startsAt)}`,
 			`DTEND:${fmt(appt.endsAt)}`,
 			`SUMMARY:${summary}`,
-			`DESCRIPTION:Agendamento com ${loaded.pro.name} — ${loaded.biz.name}`,
+			`DESCRIPTION:Agendamento com ${proName} — ${loaded.biz.name}`,
 			"BEGIN:VALARM",
 			"TRIGGER:-PT2H",
 			"ACTION:DISPLAY",
@@ -897,6 +976,8 @@ h1{font-size:1.4rem;margin:8px 0 2px}
 .card{background:#fff;border-radius:14px;padding:16px;margin:14px 0;box-shadow:0 1px 4px rgba(0,0,0,.06)}
 .svc{display:flex;justify-content:space-between;align-items:center;padding:12px;border:1.5px solid #eee;border-radius:10px;margin:8px 0;cursor:pointer}
 .svc.sel{border-color:var(--p);background:var(--selBg)}
+.svc.off{opacity:.5;pointer-events:none}
+.avatar{display:inline-flex;width:36px;height:36px;border-radius:50%;align-items:center;justify-content:center;background:var(--selBg);color:var(--p);font-weight:700}
 label{display:block;font-size:.85rem;font-weight:600;margin:12px 0 4px}
 input{width:100%;padding:12px;border:1.5px solid #ddd;border-radius:10px;font-size:1rem}
 button{width:100%;padding:14px;border:0;border-radius:12px;background:var(--p);color:#fff;font-size:1rem;font-weight:700;margin-top:16px;cursor:pointer}
@@ -952,15 +1033,55 @@ document.documentElement.style.setProperty('--selBg', "${pal.selBg}");
 const app = document.getElementById('app');
 // SEL = ids escolhidos (vários serviços num horário só; kit vai sozinho)
 let INFO = null, SEL = [], DAY = null;
+// 0026: link de agregador — seletor de profissional (PROS) e o escolhido (PRO)
+let PROS = null, PRO = null;
+// só a escolha mais recente vale: resposta atrasada de outro profissional
+// (ou de outro dia) é descartada
+let PRO_SEQ = 0, SLOT_SEQ = 0;
+// enquanto o catálogo do novo profissional carrega, o antigo fica travado:
+// serviço do anterior não pode entrar na escolha do novo
+let PRO_LOADING = false;
+const proQs = () => PRO ? '&professional='+encodeURIComponent(PRO) : '';
 const selSvcs = () => SEL.map(id => INFO.services.find(x=>x.id===id)).filter(Boolean);
 const selDur = () => selSvcs().reduce((a,s)=>a+s.duration_min,0) || 30;
 
 init();
+// troca de profissional: recarrega catálogo/horários DELE e limpa escolhas
+window.pickPro = async id => {
+  const seq = ++PRO_SEQ;
+  PRO = id; SEL = []; window.PICKED = null; PICKED_KEEP = false;
+  PRO_LOADING = true;
+  document.querySelectorAll('.svc').forEach(e => e.classList.add('off'));
+  let info;
+  try{
+    const r = await fetch('/p/'+SLUG+'/info?professional='+encodeURIComponent(id));
+    if(!r.ok) throw 0;
+    info = await r.json();
+  }catch(e){
+    if(seq !== PRO_SEQ) return;
+    PRO_LOADING = false; SEL = [];
+    PRO = null; return renderForm('não consegui abrir a agenda desse profissional, tente de novo');
+  }
+  if(seq !== PRO_SEQ) return;
+  PRO_LOADING = false; SEL = [];
+  INFO = info;
+  renderForm();
+};
+
 async function init(){
   try{
     const r = await fetch('/p/'+SLUG+'/info');
     if(!r.ok) throw 0;
     INFO = await r.json();
+    if(INFO.professionals){
+      PROS = INFO.professionals;
+      if(PROS.length===0){
+        app.innerHTML = \`<div class="card"><h1>\${esc(INFO.business.name)}</h1><p class="mut">Nenhum profissional com agenda aberta neste link no momento. Tente mais tarde.</p></div>\`;
+        return;
+      }
+      // um só profissional: já entra na agenda dele
+      if(PROS.length===1) return pickPro(PROS[0].id);
+    }
     renderForm();
   }catch(e){
     app.innerHTML = '<div class="card"><h1>Link inválido</h1><p class="mut">Essa agenda não existe ou foi removida.</p></div>';
@@ -994,7 +1115,7 @@ function renderForm(msg){
   }
   app.innerHTML = \`
     <h1>\${INFO.business.name}</h1>
-    <p class="mut">com \${INFO.professional.name} · agende seu horário</p>
+    <p class="mut">\${PROS ? (PRO ? 'com '+esc(INFO.professional.name)+' · ' : '') : 'com '+INFO.professional.name+' · '}agende seu horário</p>
     \${INFO.business.address && INFO.business.address.street ? \`
     <p class="mut" id="biz-address">📍 \${[
       INFO.business.address.street,
@@ -1008,17 +1129,21 @@ function renderForm(msg){
       <label>1. Seus dados</label>
       <input id="nm" placeholder="Seu nome" value="\${NAME_DRAFT}">
       <input id="ph" placeholder="WhatsApp (com DDD)" inputmode="tel" style="margin-top:8px" value="\${PHONE_DRAFT}">
-      <label>2. Escolha o(s) serviço(s)</label>
+      \${PROS ? \`<label>2. Escolha o profissional</label>
+      \${PROS.map(p=>\`<div class="svc pro\${PRO===p.id?' sel':''}" onclick="pickPro('\${p.id}')">
+        <span style="display:flex;align-items:center;gap:10px">\${p.logo_url?'<img src="'+p.logo_url+'" alt="" style="width:36px;height:36px;border-radius:50%;object-fit:cover">':'<span class="avatar">'+esc(p.name.charAt(0).toUpperCase())+'</span>'}\${esc(p.name)}</span></div>\`).join('')}\` : ''}
+      \${PROS && !PRO ? '' : \`
+      <label>\${PROS?3:2}. Escolha o(s) serviço(s)</label>
       <p class="mut" style="margin:0 0 4px">Pode marcar mais de um — todos ficam no mesmo horário.</p>
       \${INFO.services.map(s=>\`<div class="svc\${SEL.includes(s.id)?' sel':''}" onclick="pick('\${s.id}')">
         <span>\${esc(s.name)} · \${s.duration_min}min\${s.items&&s.items.length?'<br><small class="mut">Kit: '+s.items.map(esc).join(' + ')+'</small>':''}</span><b>\${s.items_total_cents>s.price_cents?'<s class="mut">'+brl(s.items_total_cents)+'</s> ':''}\${brl(s.price_cents)}</b></div>\`).join('')}
       \${SEL.length>1?\`<p id="sel-total"><b>\${SEL.length} serviços · \${selDur()} min · \${brl(selSvcs().reduce((a,s)=>a+s.price_cents,0))}</b></p>\`:''}
-      <label>3. Escolha o dia</label>
+      <label>\${PROS?4:3}. Escolha o dia</label>
       <div class="slots" id="days"></div>
-      <label>4. Horários livres (\${DAY?DAY.toLocaleDateString('pt-BR'):'—'})</label>
+      <label>\${PROS?5:4}. Horários livres (\${DAY?DAY.toLocaleDateString('pt-BR'):'—'})</label>
       <div class="slots" id="slots"><span class="mut">escolha um dia acima</span></div>
       <button id="go" onclick="book()">Confirmar agendamento</button>
-      <button id="wl" class="sec" onclick="joinWaitlist()">\${wlLabel()}</button>
+      <button id="wl" class="sec" onclick="joinWaitlist()">\${wlLabel()}</button>\`}
     </div>\`;
   // mantém o que estava digitado a cada re-render
   const nm = document.getElementById('nm');
@@ -1026,6 +1151,9 @@ function renderForm(msg){
   nm.addEventListener('input', () => { NAME_DRAFT = nm.value; });
   // máscara do WhatsApp: (11) 98765-4321 / (11) 3456-7890
   ph.addEventListener('input', () => { ph.value = maskPhone(ph.value); PHONE_DRAFT = ph.value; });
+  if(msg){ const e=document.getElementById('err'); e.textContent=msg; e.style.display='block'; }
+  // agregador sem profissional escolhido: ainda não há dias/horários
+  if(PROS && !PRO) return;
 
   const dw = document.getElementById('days');
   days.forEach(d=>{
@@ -1036,7 +1164,6 @@ function renderForm(msg){
     el.onclick = ()=>{ DAY=d; window.PICKED=null; [...dw.children].forEach(x=>x.classList.remove('sel')); el.classList.add('sel'); loadSlots(); };
     dw.appendChild(el);
   });
-  if(msg){ const e=document.getElementById('err'); e.textContent=msg; e.style.display='block'; }
   if(DAY) loadSlots(PICKED_KEEP);
 }
 // Re-render de erro NÃO perde o horário escolhido. Ao trocar serviço, a
@@ -1044,6 +1171,7 @@ function renderForm(msg){
 let PICKED_KEEP = false;
 // avulso: marca/desmarca (vários); kit: vai sozinho (não soma com outros)
 window.pick = id => {
+  if(PRO_LOADING) return;
   const s = INFO.services.find(x=>x.id===id);
   const isKit = x => x && x.items && x.items.length;
   if(isKit(s)){ SEL = SEL.includes(id) ? [] : [id]; }
@@ -1060,6 +1188,7 @@ function wlLabel(){
 }
 
 async function loadSlots(keepPicked){
+  const seq = ++SLOT_SEQ;
   const wl = document.getElementById('wl');
   if(wl) wl.textContent = wlLabel();
   // slots de 10min entre abrir/fechar do dia, já filtrando ocupados pela
@@ -1082,9 +1211,10 @@ async function loadSlots(keepPicked){
   let busy = [];
   try{
     const ds = DAY.getFullYear()+'-'+String(DAY.getMonth()+1).padStart(2,'0')+'-'+String(DAY.getDate()).padStart(2,'0');
-    const r = await fetch('/p/'+SLUG+'/busy?date='+ds);
+    const r = await fetch('/p/'+SLUG+'/busy?date='+ds+proQs());
     if(r.ok){ busy = (await r.json()).busy; }
   }catch(e){}
+  if(seq !== SLOT_SEQ) return; // outro dia/profissional foi escolhido
   const conflicts = d => busy.some(b =>
     d.getTime() < new Date(b.end).getTime() &&
     d.getTime()+dur+buf > new Date(b.start).getTime());
@@ -1130,7 +1260,7 @@ async function joinWaitlist(){
   try{
     const r = await fetch('/v1/p/'+SLUG+'/waitlist',{
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ name:nm, phone:ph, desired_date:ds })
+      body: JSON.stringify(Object.assign({ name:nm, phone:ph, desired_date:ds }, PRO ? { professional_id: PRO } : {}))
     });
     const d = await r.json();
     if(!r.ok){ btn.disabled=false; return fail(d.error||'Não foi possível entrar na lista agora'); }
@@ -1157,7 +1287,8 @@ async function book(){
     const r = await fetch('/p/'+SLUG+'/book',{
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify(Object.assign({ name:nm, phone:ph, starts_at:window.PICKED.toISOString() },
-        SEL.length>1 ? { service_ids: SEL } : { service_id: SEL[0] }))
+        SEL.length>1 ? { service_ids: SEL } : { service_id: SEL[0] },
+        PRO ? { professional_id: PRO } : {}))
     });
     const d = await r.json();
     if(!r.ok){
@@ -1173,7 +1304,7 @@ async function book(){
     const when = new Date(d.starts_at).toLocaleString('pt-BR',{weekday:'long',day:'2-digit',month:'long',hour:'2-digit',minute:'2-digit'});
     app.innerHTML = \`<div class="ok card"><div class="big">✅</div>
       <h1>Horário agendado!</h1>
-      <p class="mut">\${d.service} em \${d.business}</p>
+      <p class="mut">\${d.service}\${PROS && d.professional ? ' com '+esc(d.professional) : ''} em \${d.business}</p>
       <p style="margin-top:10px;font-weight:700">\${when}</p>
       <div style="display:flex;gap:10px;justify-content:center;margin-top:18px;flex-wrap:wrap">
         <a class="ics-btn" href="/p/\${SLUG}/ics/\${d.id}">📅 Salvar no meu celular</a>

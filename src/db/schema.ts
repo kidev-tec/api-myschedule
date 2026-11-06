@@ -113,6 +113,12 @@ export const businesses = pgTable("businesses", {
 	themeColor: varchar("theme_color", { length: 7 }),
 	// 0020: folga padrão entre atendimentos (min). 0 = sem folga.
 	bufferMin: integer("buffer_min").notNull().default(0),
+	// 0026: 'independent' (padrão) | 'aggregator' (reúne profissionais)
+	accountKind: varchar("account_kind", { length: 20 })
+		.notNull()
+		.default("independent"),
+	// 0026: código "E-XXXXXXXX" — gerado na 1ª promoção a agregador
+	aggregatorCode: varchar("aggregator_code", { length: 12 }).unique(),
 	createdAt: timestamp("created_at", { withTimezone: true })
 		.notNull()
 		.defaultNow(),
@@ -131,6 +137,11 @@ export const users = pgTable(
 		name: varchar("name", { length: 120 }).notNull(),
 		phone: varchar("phone", { length: 20 }),
 		role: userRoleEnum("role").notNull().default("owner"),
+		// 0026: código "P-XXXXXXXX" (DEFAULT gen_agenva_code no banco)
+		proCode: varchar("pro_code", { length: 12 })
+			.notNull()
+			.unique()
+			.default(sql`gen_agenva_code('P-')`),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.notNull()
 			.defaultNow(),
@@ -261,6 +272,11 @@ export const appointments = pgTable(
 		// RF-08: id do evento espelhado no Google Calendar do business
 		gcalEventId: text("gcal_event_id"),
 		createdByUserId: uuid("created_by_user_id").references(() => users.id),
+		// 0026: agendamento feito pelo link de um agregador (NULL = próprio)
+		aggregatorBusinessId: uuid("aggregator_business_id").references(
+			() => businesses.id,
+			{ onDelete: "set null" },
+		),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.notNull()
 			.defaultNow(),
@@ -449,4 +465,37 @@ export const notifications = pgTable(
 			.defaultNow(),
 	},
 	(t) => [index("notifications_user_created_idx").on(t.userId, t.createdAt)],
+);
+
+/**
+ * 0026: vínculo agregador ↔ profissional (docs/plano-agregador.md).
+ * status: pending | active | rejected | canceled | ended (nunca apaga).
+ * requested_by: quem pediu — o OUTRO lado é quem aprova.
+ */
+export const professionalLinks = pgTable(
+	"professional_links",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		aggregatorBusinessId: uuid("aggregator_business_id")
+			.notNull()
+			.references(() => businesses.id, { onDelete: "cascade" }),
+		professionalUserId: uuid("professional_user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		status: varchar("status", { length: 20 }).notNull().default("pending"),
+		requestedBy: varchar("requested_by", { length: 20 }).notNull(),
+		showOnLink: boolean("show_on_link").notNull().default(true),
+		position: integer("position").notNull().default(0),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+		respondedAt: timestamp("responded_at", { withTimezone: true }),
+		endedAt: timestamp("ended_at", { withTimezone: true }),
+	},
+	(t) => [
+		uniqueIndex("professional_links_live_uq")
+			.on(t.aggregatorBusinessId, t.professionalUserId)
+			.where(sql`status IN ('pending', 'active')`),
+		index("professional_links_professional_idx").on(t.professionalUserId),
+	],
 );

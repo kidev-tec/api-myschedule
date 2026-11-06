@@ -210,10 +210,16 @@ export function appointmentRoutes(databaseUrl: string) {
 				service_name: services.name,
 				service_duration_min: services.durationMin,
 				service_price_cents: services.priceCents,
+				// 0026: veio pelo link de um estabelecimento (null = link próprio)
+				aggregator_name: businesses.name,
 			})
 			.from(appointments)
 			.leftJoin(clients, eq(appointments.clientId, clients.id))
 			.leftJoin(services, eq(appointments.serviceId, services.id))
+			.leftJoin(
+				businesses,
+				eq(appointments.aggregatorBusinessId, businesses.id),
+			)
 			.where(
 				and(
 					eq(appointments.businessId, user.businessId),
@@ -238,6 +244,21 @@ export function appointmentRoutes(databaseUrl: string) {
 
 		const { startsAt, endsAt } = body;
 		const professionalId = isUuid(body.userId) ? body.userId : user.id;
+		// 0026: profissional informado tem que ser do MESMO business — com
+		// vínculos entre contas, aceitar qualquer userId abriria brecha.
+		if (professionalId !== user.id) {
+			const [same] = await db
+				.select({ id: users.id })
+				.from(users)
+				.where(
+					and(
+						eq(users.id, professionalId),
+						eq(users.businessId, user.businessId),
+					),
+				)
+				.limit(1);
+			if (!same) return c.json({ error: "Profissional inválido" }, 400);
+		}
 
 		// RF-A: source opcional no POST. "block" = bloqueio de horário.
 		// Qualquer outro valor (além de omitir) é rejeitado — default é "app".
