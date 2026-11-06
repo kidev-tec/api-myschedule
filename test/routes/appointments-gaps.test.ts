@@ -762,9 +762,8 @@ describe("defesa-2 e caminhos de erro de banco", () => {
 				},
 				body: JSON.stringify({ name: "Colega" }),
 			});
-			// 2º user cria OUTRO business (MVP 1:1) — então o userId custom aponta
-			// pra user de outro business... a rota NÃO valida isso ainda (gap real!).
-			// Aqui só exercitamos o branch: userId válido → usa o valor passado.
+			// 2º user cria OUTRO business (MVP 1:1) — o userId custom aponta pra
+			// user de outro business: desde 0026 a rota recusa (400).
 			expect(r2.status).toBe(201);
 			const j2 = (await r2.json()) as { user: { id: string } };
 			const start = new Date(Date.now() + 1_640_000_000);
@@ -779,9 +778,10 @@ describe("defesa-2 e caminhos de erro de banco", () => {
 					endsAt: new Date(start.getTime() + 1_800_000).toISOString(),
 				}),
 			});
-			// pode falhar de FK (user de outro business) — o que prova o branch é ter
-			// passado pelo isUuid && userId custom
-			expect([201, 400, 403, 409, 500]).toContain(res.status);
+			expect(res.status).toBe(400);
+			expect(((await res.json()) as { error: string }).error).toBe(
+				"Profissional inválido",
+			);
 		});
 	});
 

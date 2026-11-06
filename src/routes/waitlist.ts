@@ -22,6 +22,7 @@ import { type Db, getDb } from "../db/connection.js";
 import { businesses, clients, users, waitlist } from "../db/schema.js";
 import { phoneDigitsBr, phoneMatchKeys } from "../domain/phone-br.js";
 import { dayKey } from "../domain/schedule-day.js";
+import { loadPage, resolveTarget } from "../services/public-target.js";
 import type { AppEnv } from "../types.js";
 import { rateLimited } from "./public-booking.js";
 
@@ -38,6 +39,7 @@ type Body = {
 	phone?: unknown;
 	desired_date?: unknown;
 	client_id?: unknown;
+	professional_id?: unknown;
 } | null;
 
 /** Valida a data: formato e de hoje em diante (fuso do negócio). */
@@ -138,14 +140,16 @@ export function waitlistRoutes(databaseUrl: string) {
 				429,
 			);
 		}
-		const [biz] = await db
-			.select({ id: businesses.id, timezone: businesses.timezone })
-			.from(businesses)
-			.where(eq(businesses.slug, c.req.param("slug")))
-			.limit(1);
-		if (!biz) return c.json({ error: "Link não encontrado" }, 404);
+		const page = await loadPage(db, c.req.param("slug"));
+		if (!page) return c.json({ error: "Link não encontrado" }, 404);
 
 		const body = (await c.req.json().catch(() => null)) as Body;
+		// 0026: no link do agregador, a lista é a do profissional escolhido
+		const target = await resolveTarget(db, page, body?.professional_id);
+		if ("error" in target) {
+			return c.json({ error: target.error }, target.status);
+		}
+		const biz = target.biz;
 		const np = readNamePhone(body);
 		if ("error" in np) return c.json({ error: np.error }, 400);
 		const date =

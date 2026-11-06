@@ -22,6 +22,7 @@ import { Hono } from "hono";
 import { type Db, getDb } from "../db/connection.js";
 import {
 	businesses,
+	professionalLinks,
 	serviceKitItems,
 	services,
 	users,
@@ -381,7 +382,14 @@ export function meRoutes(databaseUrl: string) {
 			logo_url: biz.logoData ? `/v1/businesses/${biz.slug}/logo` : null,
 			theme_color: biz.themeColor,
 			buffer_min: biz.bufferMin,
-			onboarding_complete: svc.n > 0 && wh.n > 0,
+			// 0026: agregador não precisa ter serviço/horário próprios (D4)
+			onboarding_complete:
+				biz.accountKind === "aggregator" || (svc.n > 0 && wh.n > 0),
+			account_kind: biz.accountKind,
+			pro_code: me.proCode,
+			// código guardado ao voltar a independente, mas só exposto se agregador
+			aggregator_code:
+				biz.accountKind === "aggregator" ? biz.aggregatorCode : null,
 			address: {
 				street: biz.addressStreet,
 				number: biz.addressNumber,
@@ -450,6 +458,71 @@ export function meRoutes(databaseUrl: string) {
 			.set({ logoData: bytes, logoMime: file.type, logoUpdatedAt: new Date() })
 			.where(eq(businesses.id, biz.id));
 		return c.json({ logoUrl: `/v1/businesses/${biz.slug}/logo` });
+	});
+
+	/**
+	 * PUT /me/account-kind — 0026 (docs/plano-agregador.md).
+	 * 'aggregator': gera o código E- na 1ª vez (reaproveita depois).
+	 * 'independent': só sem vínculos pendentes/ativos (D1).
+	 */
+	routes.put("/me/account-kind", async (c) => {
+		const authUser = c.get("authUser");
+		const me = (
+			await db
+				.select()
+				.from(users)
+				.where(eq(users.firebaseUid, authUser.uid))
+				.limit(1)
+		)[0];
+		/* v8 ignore next -- inatingível: paywall retorna 404 antes */
+		if (!me) return c.json({ error: "Usuário não encontrado" }, 404);
+		const body = (await c.req.json().catch(() => null)) as {
+			account_kind?: unknown;
+		} | null;
+		const kind = body?.account_kind;
+		if (kind !== "aggregator" && kind !== "independent") {
+			return c.json({ error: "Tipo de conta inválido" }, 400);
+		}
+		if (kind === "independent") {
+			const live = await db
+				.select({ id: professionalLinks.id })
+				.from(professionalLinks)
+				.where(
+					and(
+						eq(professionalLinks.aggregatorBusinessId, me.businessId),
+						inArray(professionalLinks.status, ["pending", "active"]),
+					),
+				)
+				.limit(1);
+			if (live.length > 0) {
+				return c.json(
+					{
+						error:
+							"Você ainda tem profissionais vinculados ou convites pendentes. Encerre os vínculos antes de voltar a ser profissional independente.",
+					},
+					409,
+				);
+			}
+			await db
+				.update(businesses)
+				.set({ accountKind: "independent" })
+				.where(eq(businesses.id, me.businessId));
+			return c.json({ account_kind: "independent", aggregator_code: null });
+		}
+		// COALESCE: mantém o código se já existir (promoção repetida/retorno)
+		const [row] = await db
+			.update(businesses)
+			.set({
+				accountKind: "aggregator",
+				aggregatorCode: sql`COALESCE(${businesses.aggregatorCode}, gen_agenva_code('E-'))`,
+			})
+			.where(eq(businesses.id, me.businessId))
+			.returning({ code: businesses.aggregatorCode });
+		return c.json({
+			account_kind: "aggregator",
+			/* v8 ignore next -- UPDATE..RETURNING do próprio business sempre volta 1 linha */
+			aggregator_code: row?.code ?? null,
+		});
 	});
 
 	routes.patch("/me", async (c) => {

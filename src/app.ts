@@ -20,6 +20,7 @@ import {
 	logoRoutes,
 } from "./routes/infrastructure.js";
 import { notificationRoutes } from "./routes/notifications.js";
+import { professionalLinkRoutes } from "./routes/professional-links.js";
 import { publicBookingRoutes } from "./routes/public-booking.js";
 import { schoolRoutes } from "./routes/school.js";
 import { meRoutes, servicesRoutes } from "./routes/services.js";
@@ -102,6 +103,8 @@ export function createApp(opts: {
 	app.route("/v1", workingHoursRoutes(opts.databaseUrl));
 	app.route("/v1", clientsRoutes(opts.databaseUrl));
 	app.route("/v1", notificationRoutes(opts.databaseUrl));
+	// 0026: vínculos agregador ↔ profissional
+	app.route("/v1", professionalLinkRoutes(opts.databaseUrl));
 	app.route("/v1/appointments", appointmentRoutes(opts.databaseUrl));
 
 	// Logo pública (sem auth — o link de agendamento usa) + rotas internas

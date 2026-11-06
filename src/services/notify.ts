@@ -15,7 +15,13 @@ export type NotificationType =
 	| "client_confirmed" // cliente confirmou presença pelo link
 	| "client_canceled" // cliente cancelou pelo link
 	| "reminder" // lembrete de agendamento (24h antes)
-	| "waitlist"; // vaga abriu num dia com lista de espera
+	| "waitlist" // vaga abriu num dia com lista de espera
+	// 0026: vínculos agregador ↔ profissional (data.link_id)
+	| "link_request" // pedido/convite de vínculo esperando resposta
+	| "link_accepted" // o outro lado aprovou
+	| "link_rejected" // o outro lado recusou
+	| "link_ended" // o outro lado encerrou o vínculo
+	| "aggregator_booking"; // agendamento de um profissional pelo link do agregador
 
 export async function notify(
 	databaseUrl: string,
