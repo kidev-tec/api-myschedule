@@ -89,8 +89,11 @@ async function setupBase(headers: Record<string, string>) {
 	return { businessId: biz.id, clientId: client.id, serviceId: service.id };
 }
 
+// referência única (minuto cheio): duas chamadas seguidas não derivam 1 ms
+// entre si, o que fazia durações exatas falharem de vez em quando no CI
+const NOW = Math.floor(Date.now() / 60_000) * 60_000;
 function futureDate(hoursAhead: number): string {
-	return new Date(Date.now() + hoursAhead * 3600_000).toISOString();
+	return new Date(NOW + hoursAhead * 3600_000).toISOString();
 }
 
 beforeAll(async () => {

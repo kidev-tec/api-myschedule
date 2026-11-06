@@ -976,6 +976,7 @@ h1{font-size:1.4rem;margin:8px 0 2px}
 .card{background:#fff;border-radius:14px;padding:16px;margin:14px 0;box-shadow:0 1px 4px rgba(0,0,0,.06)}
 .svc{display:flex;justify-content:space-between;align-items:center;padding:12px;border:1.5px solid #eee;border-radius:10px;margin:8px 0;cursor:pointer}
 .svc.sel{border-color:var(--p);background:var(--selBg)}
+.svc.off{opacity:.5;pointer-events:none}
 .avatar{display:inline-flex;width:36px;height:36px;border-radius:50%;align-items:center;justify-content:center;background:var(--selBg);color:var(--p);font-weight:700}
 label{display:block;font-size:.85rem;font-weight:600;margin:12px 0 4px}
 input{width:100%;padding:12px;border:1.5px solid #ddd;border-radius:10px;font-size:1rem}
@@ -1037,6 +1038,9 @@ let PROS = null, PRO = null;
 // só a escolha mais recente vale: resposta atrasada de outro profissional
 // (ou de outro dia) é descartada
 let PRO_SEQ = 0, SLOT_SEQ = 0;
+// enquanto o catálogo do novo profissional carrega, o antigo fica travado:
+// serviço do anterior não pode entrar na escolha do novo
+let PRO_LOADING = false;
 const proQs = () => PRO ? '&professional='+encodeURIComponent(PRO) : '';
 const selSvcs = () => SEL.map(id => INFO.services.find(x=>x.id===id)).filter(Boolean);
 const selDur = () => selSvcs().reduce((a,s)=>a+s.duration_min,0) || 30;
@@ -1046,6 +1050,8 @@ init();
 window.pickPro = async id => {
   const seq = ++PRO_SEQ;
   PRO = id; SEL = []; window.PICKED = null; PICKED_KEEP = false;
+  PRO_LOADING = true;
+  document.querySelectorAll('.svc').forEach(e => e.classList.add('off'));
   let info;
   try{
     const r = await fetch('/p/'+SLUG+'/info?professional='+encodeURIComponent(id));
@@ -1053,9 +1059,11 @@ window.pickPro = async id => {
     info = await r.json();
   }catch(e){
     if(seq !== PRO_SEQ) return;
+    PRO_LOADING = false; SEL = [];
     PRO = null; return renderForm('não consegui abrir a agenda desse profissional, tente de novo');
   }
   if(seq !== PRO_SEQ) return;
+  PRO_LOADING = false; SEL = [];
   INFO = info;
   renderForm();
 };
@@ -1163,6 +1171,7 @@ function renderForm(msg){
 let PICKED_KEEP = false;
 // avulso: marca/desmarca (vários); kit: vai sozinho (não soma com outros)
 window.pick = id => {
+  if(PRO_LOADING) return;
   const s = INFO.services.find(x=>x.id===id);
   const isKit = x => x && x.items && x.items.length;
   if(isKit(s)){ SEL = SEL.includes(id) ? [] : [id]; }
