@@ -357,13 +357,32 @@ export function professionalLinkRoutes(databaseUrl: string) {
 			: (await aggregatorOwner(db, p.agg.id))?.id;
 	}
 
+	/**
+	 * Muda o status só se o vínculo ainda estiver em [from] (UPDATE
+	 * condicional): aceitar e cancelar ao mesmo tempo não se sobrescrevem —
+	 * quem chega depois recebe 409. Devolve false se nada mudou.
+	 */
+	async function transition(
+		id: string,
+		from: "pending" | "active",
+		set: { status: string; endedAt?: Date },
+	) {
+		const rows = await db
+			.update(professionalLinks)
+			.set(
+				from === "pending" ? { ...set, respondedAt: new Date() } : { ...set },
+			)
+			.where(
+				and(eq(professionalLinks.id, id), eq(professionalLinks.status, from)),
+			)
+			.returning({ id: professionalLinks.id });
+		return rows.length > 0;
+	}
+
 	for (const action of ["accept", "reject"] as const) {
 		routes.post(`/links/:id/${action}`, async (c) => {
 			const p = await loadParty(c.get("authUser").uid, c.req.param("id"));
 			if (!p) return c.json(notFound, 404);
-			if (p.link.status !== "pending") {
-				return c.json({ error: "Esse pedido já foi respondido." }, 409);
-			}
 			if (p.link.requestedBy === p.side) {
 				return c.json(
 					{ error: "Quem responde o pedido é o outro lado do vínculo." },
@@ -371,10 +390,9 @@ export function professionalLinkRoutes(databaseUrl: string) {
 				);
 			}
 			const status = action === "accept" ? "active" : "rejected";
-			await db
-				.update(professionalLinks)
-				.set({ status, respondedAt: new Date() })
-				.where(eq(professionalLinks.id, p.link.id));
+			if (!(await transition(p.link.id, "pending", { status }))) {
+				return c.json({ error: "Esse pedido já foi respondido." }, 409);
+			}
 			const who = p.side === "aggregator" ? p.agg.name : p.proName;
 			tell(
 				await otherSide(p),
@@ -392,32 +410,29 @@ export function professionalLinkRoutes(databaseUrl: string) {
 	routes.post("/links/:id/cancel", async (c) => {
 		const p = await loadParty(c.get("authUser").uid, c.req.param("id"));
 		if (!p) return c.json(notFound, 404);
-		if (p.link.status !== "pending") {
-			return c.json({ error: "Esse pedido já foi respondido." }, 409);
-		}
 		if (p.link.requestedBy !== p.side) {
 			return c.json(
 				{ error: "Só quem fez o pedido pode cancelar. Você pode recusar." },
 				403,
 			);
 		}
-		await db
-			.update(professionalLinks)
-			.set({ status: "canceled", respondedAt: new Date() })
-			.where(eq(professionalLinks.id, p.link.id));
+		if (!(await transition(p.link.id, "pending", { status: "canceled" }))) {
+			return c.json({ error: "Esse pedido já foi respondido." }, 409);
+		}
 		return c.json({ id: p.link.id, status: "canceled" });
 	});
 
 	routes.post("/links/:id/end", async (c) => {
 		const p = await loadParty(c.get("authUser").uid, c.req.param("id"));
 		if (!p) return c.json(notFound, 404);
-		if (p.link.status !== "active") {
+		if (
+			!(await transition(p.link.id, "active", {
+				status: "ended",
+				endedAt: new Date(),
+			}))
+		) {
 			return c.json({ error: "Esse vínculo não está ativo." }, 409);
 		}
-		await db
-			.update(professionalLinks)
-			.set({ status: "ended", endedAt: new Date() })
-			.where(eq(professionalLinks.id, p.link.id));
 		// D2: agendamentos futuros que vieram por este agregador continuam
 		// valendo (são do profissional) — o profissional fica sabendo quantos
 		const [future] = await db

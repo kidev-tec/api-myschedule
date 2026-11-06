@@ -1034,6 +1034,9 @@ const app = document.getElementById('app');
 let INFO = null, SEL = [], DAY = null;
 // 0026: link de agregador — seletor de profissional (PROS) e o escolhido (PRO)
 let PROS = null, PRO = null;
+// só a escolha mais recente vale: resposta atrasada de outro profissional
+// (ou de outro dia) é descartada
+let PRO_SEQ = 0, SLOT_SEQ = 0;
 const proQs = () => PRO ? '&professional='+encodeURIComponent(PRO) : '';
 const selSvcs = () => SEL.map(id => INFO.services.find(x=>x.id===id)).filter(Boolean);
 const selDur = () => selSvcs().reduce((a,s)=>a+s.duration_min,0) || 30;
@@ -1041,12 +1044,19 @@ const selDur = () => selSvcs().reduce((a,s)=>a+s.duration_min,0) || 30;
 init();
 // troca de profissional: recarrega catálogo/horários DELE e limpa escolhas
 window.pickPro = async id => {
+  const seq = ++PRO_SEQ;
   PRO = id; SEL = []; window.PICKED = null; PICKED_KEEP = false;
+  let info;
   try{
     const r = await fetch('/p/'+SLUG+'/info?professional='+encodeURIComponent(id));
     if(!r.ok) throw 0;
-    INFO = await r.json();
-  }catch(e){ PRO = null; return renderForm('não consegui abrir a agenda desse profissional, tente de novo'); }
+    info = await r.json();
+  }catch(e){
+    if(seq !== PRO_SEQ) return;
+    PRO = null; return renderForm('não consegui abrir a agenda desse profissional, tente de novo');
+  }
+  if(seq !== PRO_SEQ) return;
+  INFO = info;
   renderForm();
 };
 
@@ -1169,6 +1179,7 @@ function wlLabel(){
 }
 
 async function loadSlots(keepPicked){
+  const seq = ++SLOT_SEQ;
   const wl = document.getElementById('wl');
   if(wl) wl.textContent = wlLabel();
   // slots de 10min entre abrir/fechar do dia, já filtrando ocupados pela
@@ -1194,6 +1205,7 @@ async function loadSlots(keepPicked){
     const r = await fetch('/p/'+SLUG+'/busy?date='+ds+proQs());
     if(r.ok){ busy = (await r.json()).busy; }
   }catch(e){}
+  if(seq !== SLOT_SEQ) return; // outro dia/profissional foi escolhido
   const conflicts = d => busy.some(b =>
     d.getTime() < new Date(b.end).getTime() &&
     d.getTime()+dur+buf > new Date(b.start).getTime());

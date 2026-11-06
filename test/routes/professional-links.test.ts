@@ -424,6 +424,27 @@ describe("cancelar, encerrar e organizar", () => {
 		);
 	});
 
+	it("aceitar e cancelar ao mesmo tempo: só um vence, o outro recebe 409", async () => {
+		const agg = await account("aggregator");
+		const pro = await account("independent");
+		for (let i = 0; i < 5; i++) {
+			const l = await json<{ id: string }>(
+				await call(pro, "POST", "/links", { code: agg.code }),
+			);
+			const [acc, can] = await Promise.all([
+				call(agg, "POST", `/links/${l.id}/accept`),
+				call(pro, "POST", `/links/${l.id}/cancel`),
+			]);
+			expect([acc.status, can.status].sort()).toEqual([200, 409]);
+			const [row] = await sql<{ status: string }[]>`
+        SELECT status FROM professional_links WHERE id = ${l.id}`;
+			expect(row?.status).toBe(acc.status === 200 ? "active" : "canceled");
+			if (row?.status === "active") {
+				await call(pro, "POST", `/links/${l.id}/end`);
+			}
+		}
+	});
+
 	it("profissional sai: agregador é avisado", async () => {
 		const agg = await account("aggregator");
 		const pro = await account("independent");
