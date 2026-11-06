@@ -577,3 +577,66 @@ describe("nome genérico 'Profissional' (achado do E2E de 06/11)", () => {
 		expect(ownIcs).toContain("Agendamento com Profissional —");
 	});
 });
+
+describe("troca de profissional na página (achado do Codex na #54)", () => {
+	it("serviço do profissional anterior não entra na escolha do novo", async () => {
+		// o HTML é o mesmo para qualquer slug: extrai pickPro e pick e roda de verdade
+		const html = await (await app.request("/p/slug-que-nao-existe")).text();
+		const proSrc = html.match(
+			/window\.pickPro = async id => \{[\s\S]*?\n\};/,
+		)?.[0];
+		const pickSrc = html.match(/window\.pick = id => \{[\s\S]*?\n\};/)?.[0];
+		expect(proSrc).toBeTruthy();
+		expect(pickSrc).toBeTruthy();
+
+		const svcEls = [{ classList: { add: vi.fn() } }];
+		let release: (v: unknown) => void = () => {};
+		const pending = new Promise((r) => {
+			release = r;
+		});
+		const harness = new Function(
+			"fetchImpl",
+			"svcEls",
+			`const window = {}; const SLUG = "x";
+			 const document = { querySelectorAll: () => svcEls };
+			 const fetch = fetchImpl;
+			 let INFO = { services: [{ id: "A1" }] }, SEL = [], PRO = "A", PICKED_KEEP = false;
+			 let PRO_SEQ = 0, PRO_LOADING = false;
+			 const renders = [];
+			 const renderForm = msg => renders.push(msg ?? null);
+			 ${proSrc}
+			 ${pickSrc}
+			 return { window, get SEL() { return SEL; }, get INFO() { return INFO; },
+			   get PRO() { return PRO; }, renders };`,
+		);
+		const page = harness(
+			() =>
+				pending.then(() => ({
+					ok: true,
+					json: async () => ({ services: [{ id: "B1" }] }),
+				})),
+			svcEls,
+		);
+
+		const switching = page.window.pickPro("B");
+		// catálogo antigo travado enquanto carrega
+		expect(svcEls[0]?.classList.add).toHaveBeenCalledWith("off");
+		page.window.pick("A1"); // clique no serviço de A durante a troca
+		expect(page.SEL).toEqual([]);
+
+		release(null);
+		await switching;
+		expect(page.INFO.services[0].id).toBe("B1");
+		expect(page.SEL).toEqual([]);
+		page.window.pick("B1");
+		expect(page.SEL).toEqual(["B1"]); // só serviço do novo profissional
+
+		// falha ao abrir o novo profissional também destrava e limpa
+		const failing = harness(() => Promise.reject(new Error("rede")), svcEls);
+		await failing.window.pickPro("B");
+		expect(failing.PRO).toBeNull();
+		expect(failing.SEL).toEqual([]);
+		failing.window.pick("A1");
+		expect(failing.SEL).toEqual(["A1"]);
+	});
+});
