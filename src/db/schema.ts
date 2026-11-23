@@ -32,7 +32,14 @@ import {
 	varchar,
 } from "drizzle-orm/pg-core";
 
-export const userRoleEnum = pgEnum("user_role", ["owner", "pro", "reception"]);
+export const userRoleEnum = pgEnum("user_role", [
+	"owner",
+	"pro",
+	"reception",
+	// Admin MVP (SPEC-admin): administrador da plataforma. Autorização
+	// efetiva é somente role no banco — allowlist de email é UX do frontend.
+	"platform_admin",
+]);
 export const appointmentStatusEnum = pgEnum("appointment_status", [
 	"pending",
 	"confirmed",
@@ -117,6 +124,14 @@ export const businesses = pgTable("businesses", {
 	accountKind: varchar("account_kind", { length: 20 })
 		.notNull()
 		.default("independent"),
+	// Admin MVP (0027): tenant técnico interno (AGENVA Platform) — excluído
+	// da listagem admin. Suspensão é estado próprio, não billing.
+	isPlatformInternal: boolean("is_platform_internal")
+		.notNull()
+		.default(false),
+	suspendedAt: timestamp("suspended_at", { withTimezone: true }),
+	suspendedByUserId: uuid("suspended_by_user_id"),
+	suspensionReason: text("suspension_reason"),
 	// 0026: código "E-XXXXXXXX" — gerado na 1ª promoção a agregador
 	aggregatorCode: varchar("aggregator_code", { length: 12 }).unique(),
 	createdAt: timestamp("created_at", { withTimezone: true })
@@ -497,5 +512,32 @@ export const professionalLinks = pgTable(
 			.on(t.aggregatorBusinessId, t.professionalUserId)
 			.where(sql`status IN ('pending', 'active')`),
 		index("professional_links_professional_idx").on(t.professionalUserId),
+	],
+);
+
+/**
+ * Admin MVP (0027 — SPEC-admin): log de auditoria append-only.
+ * A API somente INSERT; o banco rejeita UPDATE/DELETE via trigger
+ * (admin_audit_log_append_only, migration 0027_platform_admin.sql).
+ * metadata guarda apenas diff seguro — nunca token, CPF ou segredo.
+ */
+export const adminAuditLog = pgTable(
+	"admin_audit_log",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		whoUserId: uuid("who_user_id").notNull(),
+		what: varchar("what", { length: 80 }).notNull(),
+		targetType: varchar("target_type", { length: 40 }).notNull(),
+		targetId: uuid("target_id").notNull(),
+		metadata: jsonb("metadata").notNull().default({}),
+		occurredAt: timestamp("occurred_at", { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+		ip: varchar("ip", { length: 64 }).notNull(),
+	},
+	(t) => [
+		index("admin_audit_log_occurred_idx").on(t.occurredAt),
+		index("admin_audit_log_target_idx").on(t.targetType, t.targetId),
+		index("admin_audit_log_who_idx").on(t.whoUserId, t.occurredAt),
 	],
 );
