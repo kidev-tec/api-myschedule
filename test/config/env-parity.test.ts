@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { execFileSync } from "node:child_process";
+import { describe, expect, it } from "vitest";
 
 // RF-D4 / PLAN-devops §7: paridade entre .env.example e variáveis realmente
 // consumidas pelo código (src/**, scripts/**). Falha se faltar var documentada
