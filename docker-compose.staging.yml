@@ -1,0 +1,54 @@
+# Staging ISOLADO da AGENVA — NUNCA reutilizar .env/volumes/containers de produção.
+# Produção vive em /opt/services/api-agenva (compose próprio, rede `proxy`, porta interna 3200).
+# Staging: /opt/services/api-agenva-staging — API na rede `proxy` (Caddy :3201) + rede interna com Postgres próprio.
+# RF-D1 / PLAN-devops.md v1.1.0 frozen
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: agenva-postgres-staging
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: agenva_staging
+      POSTGRES_USER: agenva_staging
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD obrigatória no .env}
+    volumes:
+      - agenva-staging-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agenva_staging -d agenva_staging"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - agenva-staging # NUNCA na rede `proxy` — Postgres de staging não pode ser alcançado de fora
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: agenva-api-staging
+    container_name: agenva-api-staging
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3201
+      DATABASE_URL: postgres://agenva_staging:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/agenva_staging
+      CORS_ORIGINS: ${CORS_ORIGINS_STAGING:?CORS_ORIGINS_STAGING obrigatória}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:?obrigatória}
+      FIREBASE_SERVICE_ACCOUNT_B64: ${FIREBASE_SERVICE_ACCOUNT_B64:-}
+    # Sem `ports:` para o host — Caddy alcança pela rede docker `proxy`
+    networks:
+      - proxy
+      - agenva-staging
+
+volumes:
+  agenva-staging-postgres-data:
+    name: agenva-staging-postgres-data
+
+networks:
+  proxy:
+    external: true # rede existente na VM (Caddy)
+  agenva-staging:
+    name: agenva-staging
