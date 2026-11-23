@@ -357,8 +357,12 @@ describe("kits de serviço", () => {
 		const futureBase = new Date(Date.now() + 7 * 86_400_000);
 		futureBase.setUTCHours(13, 0, 0, 0);
 		const startsAtIso = futureBase.toISOString();
-		const endsAtIso = new Date(futureBase.getTime() + 50 * 60_000).toISOString();
-		const laterIso = new Date(futureBase.getTime() + 3 * 3_600_000).toISOString();
+		const endsAtIso = new Date(
+			futureBase.getTime() + 50 * 60_000,
+		).toISOString();
+		const laterIso = new Date(
+			futureBase.getTime() + 3 * 3_600_000,
+		).toISOString();
 		const book = (body: Record<string, unknown>) =>
 			app.request(`/p/${slug}/book`, {
 				method: "POST",
