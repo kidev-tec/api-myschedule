@@ -5,8 +5,13 @@
 
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
+import {
+	requirePlatformAdminFactory,
+	requireTenantActiveFactory,
+} from "./middleware/admin-guard.js";
 import { firebaseAuthMiddleware } from "./middleware/auth.js";
 import { requireWritableFactory } from "./middleware/paywall.js";
+import { adminRoutes } from "./routes/admin.js";
 import { appointmentRoutes } from "./routes/appointments.js";
 import { asaasWebhookRoutes } from "./routes/asaas-webhook.js";
 import { authSyncRoutes } from "./routes/auth-sync.js";
@@ -62,6 +67,18 @@ export function createApp(opts: {
 			opts.firebaseServiceAccountB64,
 		)(c as never, next);
 	});
+
+	// Admin MVP (SPEC-admin): guard platform_admin ANTES do paywall/tenant-guard;
+	// /v1/admin/* escapa do paywall comercial e do bloqueio de suspensão.
+	const requirePlatformAdmin = requirePlatformAdminFactory(opts.databaseUrl);
+	app.use("/v1/admin/*", (c, next) => requirePlatformAdmin(c as never, next));
+	app.route("/v1/admin", adminRoutes(opts.databaseUrl));
+
+	// Suspensão (SPEC-admin decisões #5): toda /v1/* autenticada não-admin
+	// verifica businesses.suspended_at. Usuário sem espelho no Postgres passa
+	// (permite POST /v1/auth/sync criar 1º acesso).
+	const requireTenantActive = requireTenantActiveFactory(opts.databaseUrl);
+	app.use("/v1/*", (c, next) => requireTenantActive(c as never, next));
 
 	// Paywall (RF-14): trial vencido/canceled → 402 em tudo que escreve.
 	// GET /me, /services, /clients etc. continuam abertos (leitura livre);

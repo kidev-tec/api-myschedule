@@ -353,6 +353,16 @@ describe("kits de serviço", () => {
 		expect(semCliente.status).toBe(400);
 
 		// link público: service_ids → horário só, com o mesmo kit oculto
+		// Datas dinâmicas: horário fixo 13:00Z, sempre ~7 dias no futuro (date-bomb-proof)
+		const futureBase = new Date(Date.now() + 7 * 86_400_000);
+		futureBase.setUTCHours(13, 0, 0, 0);
+		const startsAtIso = futureBase.toISOString();
+		const endsAtIso = new Date(
+			futureBase.getTime() + 50 * 60_000,
+		).toISOString();
+		const laterIso = new Date(
+			futureBase.getTime() + 3 * 3_600_000,
+		).toISOString();
 		const book = (body: Record<string, unknown>) =>
 			app.request(`/p/${slug}/book`, {
 				method: "POST",
@@ -360,7 +370,7 @@ describe("kits de serviço", () => {
 				body: JSON.stringify({
 					name: "Cli Pub",
 					phone: "11977776666",
-					starts_at: "2026-11-09T13:00:00.000Z",
+					starts_at: startsAtIso,
 					...body,
 				}),
 			});
@@ -368,13 +378,13 @@ describe("kits de serviço", () => {
 		expect(pb.status).toBe(201);
 		const pbody = (await pb.json()) as { service: string; ends_at: string };
 		expect(pbody.service).toBe("Barba C + Corte C");
-		expect(pbody.ends_at).toBe("2026-11-09T13:50:00.000Z");
+		expect(pbody.ends_at).toBe(endsAtIso);
 		expect((await book({ service_ids: [a.id, k.id] })).status).toBe(400);
 		expect(
 			(
 				await book({
 					service_ids: [b.id],
-					starts_at: "2026-11-09T16:00:00.000Z",
+					starts_at: laterIso,
 				})
 			).status,
 		).toBe(201);
