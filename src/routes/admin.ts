@@ -39,7 +39,7 @@ export async function appendAdminAudit(
 		what: string;
 		targetType: string;
 		targetId: string;
-		metadata?: Record<string, unknown>;
+		metadata: Record<string, unknown>;
 		ip: string;
 	},
 ): Promise<void> {
@@ -48,7 +48,7 @@ export async function appendAdminAudit(
 		what: input.what,
 		targetType: input.targetType,
 		targetId: input.targetId,
-		metadata: input.metadata ?? {},
+		metadata: input.metadata,
 		ip: input.ip,
 	});
 }
@@ -154,7 +154,7 @@ export function adminRoutes(databaseUrl: string) {
 			.from(businesses)
 			.leftJoin(owners, eq(owners.businessId, businesses.id))
 			.where(where);
-		const total = totalRows[0]?.count ?? 0;
+		const total = totalRows[0]!.count;
 
 		return c.json({
 			items: items.map((t) => ({
@@ -312,8 +312,8 @@ export function adminRoutes(databaseUrl: string) {
 			.from(businesses)
 			.where(eq(businesses.id, id))
 			.limit(1);
-		const t = finalRows[0];
-		if (!t) return c.json({ error: "tenant não encontrado." }, 404);
+		// Re-read pós-commit de update que já retornou 200 — row garantida.
+		const t = finalRows[0]!;
 		return c.json({
 			id: t.id,
 			suspended_at: t.suspendedAt?.toISOString() ?? null,
@@ -408,7 +408,7 @@ export function adminRoutes(databaseUrl: string) {
 			.select({ count: sql<number>`count(*)::int` })
 			.from(adminAuditLog)
 			.where(where);
-		const total = totalRows[0]?.count ?? 0;
+		const total = totalRows[0]!.count;
 
 		return c.json({
 			items: items.map((a) => ({
