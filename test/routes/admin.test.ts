@@ -291,6 +291,16 @@ describe("GET /v1/admin/tenants", () => {
 			headers: authedAs(fix.adminToken),
 		});
 		expect(bad.status).toBe(400);
+
+		for (const st of ["active_subscription", "past_due", "canceled"]) {
+			const dbStatus = st === "active_subscription" ? "active" : st;
+			await sqlx`UPDATE businesses SET subscription_status = ${dbStatus} WHERE id = ${fix.tenantId}`;
+			const r = await app.request(`/v1/admin/tenants?status=${st}`, {
+				headers: authedAs(fix.adminToken),
+			});
+			const rj = (await r.json()) as { items: { id: string }[] };
+			expect(rj.items.map((i) => i.id)).toContain(fix.tenantId);
+		}
 	});
 
 	it("ordenação determinística created_at DESC, id DESC", async () => {
@@ -383,6 +393,21 @@ describe("PATCH /v1/admin/tenants/:id/status", () => {
 		expect((log.metadata as Record<string, unknown>).reason).toBe(
 			"inadimplência",
 		);
+
+		// xff com primeiro item vazio → cai no fallback "local"
+		const resLocal = await app.request(
+			`/v1/admin/tenants/${fix.tenantId}/status`,
+			patchBody(
+				{ status: "active", reason: "reativação" },
+				fix.adminToken,
+				", 10.0.0.1",
+			),
+		);
+		expect(resLocal.status).toBe(200);
+		const [logLocal] = await sqlx`
+			SELECT ip FROM admin_audit_log WHERE target_id = ${fix.tenantId}
+			ORDER BY occurred_at DESC LIMIT 1`;
+		expect(logLocal?.ip).toBe("local");
 	});
 
 	it("reativa: limpa colunas e audita tenant.reactivated; não altera billing", async () => {
@@ -630,6 +655,7 @@ describe("GET /v1/admin/audit-log", () => {
 		expect((await get("from=xx")).status).toBe(400);
 		expect((await get("to=yy")).status).toBe(400);
 		expect((await get("tenant_id=nope")).status).toBe(400);
+		expect((await get("who_user_id=nope")).status).toBe(400);
 		expect((await get(`what=${"w".repeat(81)}`)).status).toBe(400);
 		expect((await get("page=0")).status).toBe(400);
 	});
