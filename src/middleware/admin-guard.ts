@@ -74,6 +74,8 @@ export function requireTenantActiveFactory(
 	const db = getDb(databaseUrl);
 	return async (c, next) => {
 		const authUser = c.get("authUser");
+		// Rotas públicas (sem auth): authUser ausente → não há espelho p/ checar.
+		if (!authUser) return next();
 		const rows = await db
 			.select({ suspendedAt: businesses.suspendedAt })
 			.from(users)

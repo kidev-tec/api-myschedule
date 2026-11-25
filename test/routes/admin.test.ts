@@ -333,10 +333,9 @@ describe("GET /v1/admin/tenants/:id", () => {
 		);
 		expect(missing.status).toBe(404);
 
-		const internal = await app.request(
-			`/v1/admin/tenants/${fix.internalId}`,
-			{ headers: authedAs(fix.adminToken) },
-		);
+		const internal = await app.request(`/v1/admin/tenants/${fix.internalId}`, {
+			headers: authedAs(fix.adminToken),
+		});
 		expect(internal.status).toBe(404);
 
 		const bad = await app.request("/v1/admin/tenants/not-a-uuid", {
@@ -436,15 +435,12 @@ describe("PATCH /v1/admin/tenants/:id/status", () => {
 				},
 				body,
 			});
+		expect((await patch(JSON.stringify({ status: "suspended" }))).status).toBe(
+			400,
+		);
 		expect(
-			(await patch(JSON.stringify({ status: "suspended" }))).status,
-		).toBe(400);
-		expect(
-			(
-				await patch(
-					JSON.stringify({ status: "suspended", reason: "  " }),
-				)
-			).status,
+			(await patch(JSON.stringify({ status: "suspended", reason: "  " })))
+				.status,
 		).toBe(400);
 		expect(
 			(
@@ -453,13 +449,17 @@ describe("PATCH /v1/admin/tenants/:id/status", () => {
 				)
 			).status,
 		).toBe(400);
-		expect(
-			(await patch(JSON.stringify({ status: "banana" }))).status,
-		).toBe(400);
+		expect((await patch(JSON.stringify({ status: "banana" }))).status).toBe(
+			400,
+		);
 		expect((await patch("not-json")).status).toBe(400);
 		expect(
-			(await patch(JSON.stringify({ status: "active" }), "/v1/admin/tenants/xyz/status"))
-				.status,
+			(
+				await patch(
+					JSON.stringify({ status: "active" }),
+					"/v1/admin/tenants/xyz/status",
+				)
+			).status,
 		).toBe(400);
 	});
 
@@ -478,9 +478,9 @@ describe("PATCH /v1/admin/tenants/:id/status", () => {
 		expect(
 			(await patch(`/v1/admin/tenants/${crypto.randomUUID()}/status`)).status,
 		).toBe(404);
-		expect((await patch(`/v1/admin/tenants/${fix.internalId}/status`)).status).toBe(
-			404,
-		);
+		expect(
+			(await patch(`/v1/admin/tenants/${fix.internalId}/status`)).status,
+		).toBe(404);
 	});
 
 	it("falha de auditoria desfaz o update (same tx)", async () => {
@@ -513,10 +513,9 @@ describe("GET /v1/admin/tenants/:id/billing", () => {
 	it("409 billing_not_configured (sem projeção Asaas)", async () => {
 		f = await fixture();
 		const fix = await fx();
-		const res = await app.request(
-			`/v1/admin/tenants/${fix.tenantId}/billing`,
-			{ headers: authedAs(fix.adminToken) },
-		);
+		const res = await app.request(`/v1/admin/tenants/${fix.tenantId}/billing`, {
+			headers: authedAs(fix.adminToken),
+		});
 		expect(res.status).toBe(409);
 		const json = (await res.json()) as { error: string };
 		expect(json.error).toBe("billing_not_configured");
@@ -590,9 +589,12 @@ describe("GET /v1/admin/audit-log", () => {
 		const byWhoJson = (await byWho.json()) as { items: unknown[] };
 		expect(byWhoJson.items.length).toBeGreaterThanOrEqual(1);
 
-		const byWhat = await app.request("/v1/admin/audit-log?what=tenant.suspended", {
-			headers: authedAs(fix.adminToken),
-		});
+		const byWhat = await app.request(
+			"/v1/admin/audit-log?what=tenant.suspended",
+			{
+				headers: authedAs(fix.adminToken),
+			},
+		);
 		const byWhatJson = (await byWhat.json()) as { items: unknown[] };
 		expect(byWhatJson.items.length).toBeGreaterThanOrEqual(1);
 
@@ -620,11 +622,7 @@ describe("GET /v1/admin/audit-log", () => {
 				headers: authedAs(fix.adminToken),
 			});
 		expect(
-			(
-				await get(
-					"from=2026-01-02T00:00:00Z&to=2026-01-01T00:00:00Z",
-				)
-			).status,
+			(await get("from=2026-01-02T00:00:00Z&to=2026-01-01T00:00:00Z")).status,
 		).toBe(400);
 		expect(
 			(await get("from=2026-01-01T00:00:00Z&to=2026-06-01T00:00:00Z")).status,

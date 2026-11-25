@@ -126,9 +126,7 @@ export const businesses = pgTable("businesses", {
 		.default("independent"),
 	// Admin MVP (0027): tenant técnico interno (AGENVA Platform) — excluído
 	// da listagem admin. Suspensão é estado próprio, não billing.
-	isPlatformInternal: boolean("is_platform_internal")
-		.notNull()
-		.default(false),
+	isPlatformInternal: boolean("is_platform_internal").notNull().default(false),
 	suspendedAt: timestamp("suspended_at", { withTimezone: true }),
 	suspendedByUserId: uuid("suspended_by_user_id"),
 	suspensionReason: text("suspension_reason"),
