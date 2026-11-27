@@ -15,14 +15,29 @@ import { type Db, getDb } from "../db/connection.js";
 import { businesses } from "../db/schema.js";
 import type { AppEnv } from "../types.js";
 
-/** Evento Asaas → subscription_status. null = ignorar. */
+/**
+ * Evento Asaas → subscription_status. null = ignorar.
+ *
+ * O Asaas envia o campo `event` com UNDERSCORE (ex. "PAYMENT_RECEIVED" —
+ * docs.asaas.com/docs/webhook-para-cobrancas e /eventos-para-assinaturas).
+ * O formato com ponto ("PAYMENT.CONFIRMED") nunca existiu na API; segue
+ * aceito só por compatibilidade com o que já estava no código.
+ */
 export function eventToStatus(event: string): string | null {
-	if (event === "PAYMENT.CONFIRMED" || event === "PAYMENT.RECEIVED")
-		return "active";
-	if (event === "PAYMENT.OVERDUE") return "past_due";
-	if (event === "SUBSCRIPTION.CANCELED" || event === "PAYMENT.REFUNDED")
-		return "canceled";
-	return null;
+	switch (event.replaceAll(".", "_")) {
+		case "PAYMENT_CONFIRMED":
+		case "PAYMENT_RECEIVED":
+			return "active";
+		case "PAYMENT_OVERDUE":
+			return "past_due";
+		case "PAYMENT_REFUNDED":
+		case "SUBSCRIPTION_INACTIVATED":
+		case "SUBSCRIPTION_DELETED":
+		case "SUBSCRIPTION_CANCELED": // legado (com ponto) — não é evento oficial
+			return "canceled";
+		default:
+			return null;
+	}
 }
 
 function tokenMatches(expected: string | undefined, received: string): boolean {

@@ -68,9 +68,10 @@ App lê novo estado no próximo GET /me (sem push nesta fase)
   adicionar em app.ts): valida header `asaas-access-token` contra
   `ASAAS_WEBHOOK_TOKEN` (401 se difere, constant-time).
 - Eventos tratados (payload v2 do Asaas):
-  - `PAYMENT.CONFIRMED` / `PAYMENT.RECEIVED` → active
-  - `PAYMENT.OVERDUE` → past_due
-  - `SUBSCRIPTION.CANCELED` / `PAYMENT.REFUNDED` → canceled
+  - `PAYMENT_CONFIRMED` / `PAYMENT_RECEIVED` → active
+  - `PAYMENT_OVERDUE` → past_due
+  - `SUBSCRIPTION_INACTIVATED` / `SUBSCRIPTION_DELETED` / `PAYMENT_REFUNDED` → canceled
+  - Correção 2026-11-27: o Asaas envia os eventos com **underscore** (docs.asaas.com/docs/webhook-para-cobrancas e /eventos-para-assinaturas); a versão anterior comparava com ponto (`PAYMENT.CONFIRMED`) e ignorava os eventos reais. O formato com ponto segue aceito por compatibilidade.
   - Outros → 200 ignorado (log), nunca 4xx pro Asaas re-tentar forever.
 - Sempre resolve o business por `asaas_customer_id` (nunca confiar em email).
 - Testes: cada evento → estado esperado; token errado 401; evento
