@@ -13,6 +13,7 @@ import { authSyncRoutes } from "./routes/auth-sync.js";
 import { billingRoutes } from "./routes/billing.js";
 import { clientsRoutes } from "./routes/clients.js";
 import { docsRoutes } from "./routes/docs.js";
+import { financeRoutes } from "./routes/finance.js";
 import { gcalRoutes } from "./routes/gcal.js";
 import {
 	deviceRoutes,
@@ -105,6 +106,8 @@ export function createApp(opts: {
 	app.route("/v1", notificationRoutes(opts.databaseUrl));
 	// 0026: vínculos agregador ↔ profissional
 	app.route("/v1", professionalLinkRoutes(opts.databaseUrl));
+	// módulo de finanças (.planning/financas) — escrita sujeita ao paywall
+	app.route("/v1", financeRoutes(opts.databaseUrl));
 	app.route("/v1/appointments", appointmentRoutes(opts.databaseUrl));
 
 	// Logo pública (sem auth — o link de agendamento usa) + rotas internas

@@ -1,6 +1,6 @@
 # TASK-F1-03 — Rotas de recebimento, estorno e contas a receber
 
-- **Status:** Ready
+- **Status:** Done
 - **O QUE É:** novo sub-app `src/routes/finance.ts` para lançar recebimentos (sinal, parcial, quitação, avulso), estornar e listar o que está em aberto.
 - **EXECUTION MODE:** Interactive
 - **RF-IDs:** RF-F01, RF-F02, RF-F04
