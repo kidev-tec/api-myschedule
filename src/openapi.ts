@@ -30,7 +30,8 @@ export const openApiSpec = {
 		{ name: "Appointments", description: "Agenda do prestador" },
 		{
 			name: "Finanças",
-			description: "Recebimentos, contas a receber, despesas e caixa diário",
+			description:
+				"Recebimentos, contas a receber, despesas, caixa diário, relatórios e metas",
 		},
 		{ name: "WorkingHours", description: "Horário de funcionamento" },
 		{
@@ -674,6 +675,112 @@ export const openApiSpec = {
 					{ name: "to", in: "query", schema: { type: "string" } },
 				],
 				responses: { "200": { description: "{ sessions[] }" } },
+			},
+		},
+		"/v1/finance/reports/summary": {
+			get: {
+				tags: ["Finanças"],
+				summary:
+					"Resumo do período: faturamento, despesas, resultado, ticket médio",
+				description:
+					"from/to = datas locais do negócio (AAAA-MM-DD, até 366 dias). Faturamento = " +
+					"recebimentos (regime de caixa); despesas pagas; by_method; series diária; " +
+					"done_count/sold_cents/avg_ticket_cents/avg_per_client_cents sobre atendimentos " +
+					"concluídos; open_cents = em aberto agora.",
+				parameters: [
+					{
+						name: "from",
+						in: "query",
+						required: true,
+						schema: { type: "string", format: "date" },
+					},
+					{
+						name: "to",
+						in: "query",
+						required: true,
+						schema: { type: "string", format: "date" },
+					},
+				],
+				responses: {
+					"200": { description: "Resumo" },
+					"400": { description: "Período inválido" },
+				},
+			},
+		},
+		"/v1/finance/reports/services": {
+			get: {
+				tags: ["Finanças"],
+				summary: "Atendimentos concluídos por serviço (quantidade e valor)",
+				description: "Kit conta como o kit. Ordenado pelo total.",
+				parameters: [
+					{
+						name: "from",
+						in: "query",
+						required: true,
+						schema: { type: "string", format: "date" },
+					},
+					{
+						name: "to",
+						in: "query",
+						required: true,
+						schema: { type: "string", format: "date" },
+					},
+				],
+				responses: {
+					"200": { description: "{ items[] }" },
+					"400": { description: "Período inválido" },
+				},
+			},
+		},
+		"/v1/finance/goals/{month}": {
+			get: {
+				tags: ["Finanças"],
+				summary: "Meta do mês com realizado e % atingido",
+				parameters: [
+					{
+						name: "month",
+						in: "path",
+						required: true,
+						schema: { type: "string", example: "2026-11" },
+					},
+				],
+				responses: {
+					"200": {
+						description:
+							"target_cents (null = sem meta), achieved_cents, percent, remaining_cents, days_left, needed_per_day_cents",
+					},
+				},
+			},
+			put: {
+				tags: ["Finanças"],
+				summary: "Define/atualiza a meta do mês",
+				description: "Body: target_cents (> 0).",
+				parameters: [
+					{
+						name: "month",
+						in: "path",
+						required: true,
+						schema: { type: "string" },
+					},
+				],
+				responses: {
+					"200": { description: "Meta" },
+					"400": { description: "Inválido" },
+					"402": { description: "Paywall" },
+				},
+			},
+			delete: {
+				tags: ["Finanças"],
+				summary: "Remove a meta do mês",
+				parameters: [
+					{
+						name: "month",
+						in: "path",
+						required: true,
+						schema: { type: "string" },
+					},
+				],
+				responses: { "200": { description: "Meta (target_cents null)" } },
 			},
 		},
 		"/v1/working-hours": {
