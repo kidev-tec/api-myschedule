@@ -125,6 +125,8 @@ describe("DELETE /v1/auth/account", () => {
       VALUES (${bizId}, ${cliId}, ${svcBody.id}, (SELECT id FROM users WHERE firebase_uid = ${u}), now() + interval '10 days', now() + interval '10 days 30 minutes')`;
 		await sql`
       INSERT INTO transactions (business_id, type, amount_cents, category) VALUES (${bizId}, 'income', 5000, 'serviço')`;
+		await sql`
+      INSERT INTO financial_goals (business_id, month, target_cents) VALUES (${bizId}, '2026-11-01', 100000)`;
 		// 0028: caixa aberto (opened_by → users) com lançamento ligado a ele
 		await sql`
       WITH cs AS (
@@ -165,6 +167,7 @@ describe("DELETE /v1/auth/account", () => {
         (SELECT count(*)::int FROM appointments WHERE business_id = ${bizId}) AS appointments,
         (SELECT count(*)::int FROM transactions WHERE business_id = ${bizId}) AS transactions,
         (SELECT count(*)::int FROM cash_sessions WHERE business_id = ${bizId}) AS cash,
+        (SELECT count(*)::int FROM financial_goals WHERE business_id = ${bizId}) AS goals,
         (SELECT count(*)::int FROM message_templates WHERE business_id = ${bizId}) AS templates,
         (SELECT count(*)::int FROM subscriptions WHERE business_id = ${bizId}) AS subs,
         (SELECT count(*)::int FROM working_hours WHERE user_id IN (SELECT id FROM users WHERE firebase_uid = ${u})) AS wh`;
