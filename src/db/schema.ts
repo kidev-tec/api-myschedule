@@ -379,6 +379,23 @@ export const cashSessions = pgTable(
 	],
 );
 
+/** 0029: meta mensal de faturamento (módulo de finanças, F3). */
+export const financialGoals = pgTable(
+	"financial_goals",
+	{
+		businessId: uuid("business_id")
+			.notNull()
+			.references(() => businesses.id, { onDelete: "cascade" }),
+		// 1º dia do mês ("YYYY-MM-01")
+		month: date("month").notNull(),
+		targetCents: integer("target_cents").notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+	},
+	(t) => [primaryKey({ columns: [t.businessId, t.month] })],
+);
+
 export const loyaltyPrograms = pgTable("loyalty_programs", {
 	id: uuid("id").defaultRandom().primaryKey(),
 	businessId: uuid("business_id")
