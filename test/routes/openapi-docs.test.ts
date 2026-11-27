@@ -53,6 +53,8 @@ describe("OpenAPI docs", () => {
 			"/v1/working-hours",
 			"/v1/gcal/auth-url",
 			"/v1/gcal/status",
+			"/v1/finance/payments",
+			"/v1/finance/receivables",
 			"/health",
 			"/version",
 		];

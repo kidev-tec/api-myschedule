@@ -28,6 +28,10 @@ export const openApiSpec = {
 		{ name: "Services", description: "Catálogo de serviços do prestador" },
 		{ name: "Clients", description: "Clientes do prestador" },
 		{ name: "Appointments", description: "Agenda do prestador" },
+		{
+			name: "Finanças",
+			description: "Recebimentos, estornos e contas a receber",
+		},
 		{ name: "WorkingHours", description: "Horário de funcionamento" },
 		{
 			name: "PublicBooking",
@@ -456,7 +460,8 @@ export const openApiSpec = {
 				description:
 					"Mudanças disparam WhatsApp ao cliente e, se o prestador conectou o " +
 					"Google Calendar, espelham o evento (criar/atualizar/remover — RF-08). " +
-					"Falha de Calendar NUNCA falha o PATCH (fire-and-forget).",
+					"Falha de Calendar NUNCA falha o PATCH (fire-and-forget). " +
+					"price_cents (0027): valor do atendimento — nunca abaixo do já recebido; pago → 422.",
 				parameters: [
 					{
 						name: "id",
@@ -470,6 +475,97 @@ export const openApiSpec = {
 					"404": { description: "Não encontrado" },
 					"402": { description: "Paywall" },
 				},
+			},
+		},
+		"/v1/finance/appointments/{id}": {
+			get: {
+				tags: ["Finanças"],
+				summary: "Valor, recebimentos e situação da cobrança do agendamento",
+				description:
+					"Situação derivada do livro-caixa: none (sem valor) | open | partial | paid. " +
+					"Recebimentos estornados aparecem com voided_at e não somam.",
+				parameters: [
+					{
+						name: "id",
+						in: "path",
+						required: true,
+						schema: { type: "string", format: "uuid" },
+					},
+				],
+				responses: {
+					"200": {
+						description:
+							"price_cents, paid_cents, balance_cents, payment_status, payments[]",
+					},
+					"404": { description: "Não encontrado" },
+				},
+			},
+		},
+		"/v1/finance/payments": {
+			post: {
+				tags: ["Finanças"],
+				summary: "Registra recebimento (sinal, parcial, quitação ou avulso)",
+				description:
+					"Body: appointment_id?, client_id?, amount_cents (>0), payment_method " +
+					"(pix|cash|debit|credit|payment_link|other), installments? (1–12, só crédito), " +
+					"occurred_at?, notes? (≤500). Nunca ultrapassa o saldo (422). " +
+					"Pago antes do atendimento ativo = kind deposit (sinal).",
+				responses: {
+					"201": { description: "{ payment, appointment | null }" },
+					"400": { description: "Dados inválidos" },
+					"402": { description: "Paywall" },
+					"404": { description: "Agendamento/cliente não encontrado" },
+					"422": {
+						description: "Cancelado, sem valor, já pago ou acima do saldo",
+					},
+				},
+			},
+		},
+		"/v1/finance/transactions/{id}/void": {
+			post: {
+				tags: ["Finanças"],
+				summary: "Estorna um lançamento (marca voided_at, nunca apaga)",
+				parameters: [
+					{
+						name: "id",
+						in: "path",
+						required: true,
+						schema: { type: "string", format: "uuid" },
+					},
+				],
+				responses: {
+					"200": { description: "{ payment, appointment | null }" },
+					"402": { description: "Paywall" },
+					"404": { description: "Não encontrado" },
+					"409": { description: "Já estornado" },
+				},
+			},
+		},
+		"/v1/finance/receivables": {
+			get: {
+				tags: ["Finanças"],
+				summary: "Contas a receber: agendamentos com saldo em aberto",
+				description:
+					"Status pending/confirmed/done (cancelado e falta fora). Padrão: até +60 dias. " +
+					"Totais: total_open_cents, overdue_cents (já realizados), upcoming_cents.",
+				parameters: [
+					{
+						name: "from",
+						in: "query",
+						schema: { type: "string", format: "date-time" },
+					},
+					{
+						name: "to",
+						in: "query",
+						schema: { type: "string", format: "date-time" },
+					},
+					{
+						name: "client_id",
+						in: "query",
+						schema: { type: "string", format: "uuid" },
+					},
+				],
+				responses: { "200": { description: "items[], totais" } },
 			},
 		},
 		"/v1/working-hours": {

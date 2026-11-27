@@ -272,6 +272,9 @@ export const appointments = pgTable(
 		// RF-08: id do evento espelhado no Google Calendar do business
 		gcalEventId: text("gcal_event_id"),
 		createdByUserId: uuid("created_by_user_id").references(() => users.id),
+		// 0027: valor cobrado no atendimento (snapshot do preço na criação;
+		// editável — desconto/acréscimo). Bloqueio = 0.
+		priceCents: integer("price_cents").notNull().default(0),
 		// 0026: agendamento feito pelo link de um agregador (NULL = próprio)
 		aggregatorBusinessId: uuid("aggregator_business_id").references(
 			() => businesses.id,
@@ -310,9 +313,26 @@ export const transactions = pgTable(
 			.notNull()
 			.defaultNow(),
 		notes: text("notes"),
+		// 0027: livro-caixa (módulo de finanças, F1)
+		// pix | cash | debit | credit | payment_link | other
+		paymentMethod: varchar("payment_method", { length: 20 }),
+		// parcelamento no crédito, informativo (1..12)
+		installments: integer("installments").notNull().default(1),
+		// payment | deposit (sinal) | expense | cash_in | cash_out
+		kind: varchar("kind", { length: 20 }).notNull().default("payment"),
+		clientId: uuid("client_id").references(() => clients.id),
+		createdByUserId: uuid("created_by_user_id").references(() => users.id),
+		// estorno: lançamento anulado sai de todos os cálculos, nunca é apagado
+		voidedAt: timestamp("voided_at", { withTimezone: true }),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.notNull()
+			.defaultNow(),
 	},
 	(t) => [
 		index("transactions_business_occurred_idx").on(t.businessId, t.occurredAt),
+		index("transactions_appointment_idx")
+			.on(t.appointmentId)
+			.where(sql`voided_at IS NULL`),
 	],
 );
 
