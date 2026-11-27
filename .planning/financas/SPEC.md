@@ -168,6 +168,17 @@ Na branch única `feat/modulo-financas`, cada TASK vira um commit; a fase fecha 
 | F1-11 Pagamento no agendamento | apk | `apk/.planning/financas/specs/TASK-F1-11-pagamento-agendamento.md` |
 | F1-12 Área Finanças + A receber | apk | `apk/.planning/financas/specs/TASK-F1-12-a-receber.md` |
 
+F1 concluída: kidev-tec/api-myschedule#60 e kidev-tec/apk-myschedule#85 (merge em staging, 2026-11-27).
+
+### Tasks da F2
+| Task | Repo | Arquivo |
+|---|---|---|
+| F2-01 Migration 0028 (caixa, despesas) | api | `specs/TASK-F2-01-migration.md` |
+| F2-02 Despesas | api | `specs/TASK-F2-02-despesas.md` |
+| F2-03 Caixa diário | api | `specs/TASK-F2-03-caixa.md` |
+| F2-11 Despesas | apk | `apk/.planning/financas/specs/TASK-F2-11-despesas.md` |
+| F2-12 Caixa do dia | apk | `apk/.planning/financas/specs/TASK-F2-12-caixa.md` |
+
 ## 8. Pontos de atenção
 
 - **Cobertura api 100/100/100/100**; apk ≥ gate vigente.

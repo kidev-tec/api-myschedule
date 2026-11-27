@@ -125,6 +125,15 @@ describe("DELETE /v1/auth/account", () => {
       VALUES (${bizId}, ${cliId}, ${svcBody.id}, (SELECT id FROM users WHERE firebase_uid = ${u}), now() + interval '10 days', now() + interval '10 days 30 minutes')`;
 		await sql`
       INSERT INTO transactions (business_id, type, amount_cents, category) VALUES (${bizId}, 'income', 5000, 'serviço')`;
+		// 0028: caixa aberto (opened_by → users) com lançamento ligado a ele
+		await sql`
+      WITH cs AS (
+        INSERT INTO cash_sessions (business_id, opened_by, opening_cents)
+        VALUES (${bizId}, (SELECT id FROM users WHERE firebase_uid = ${u}), 1000)
+        RETURNING id)
+      INSERT INTO transactions (business_id, type, amount_cents, category, kind, payment_method, cash_session_id, created_by_user_id)
+      SELECT ${bizId}, 'income', 2000, 'suprimento', 'cash_in', 'cash', cs.id,
+             (SELECT id FROM users WHERE firebase_uid = ${u}) FROM cs`;
 		await sql`
       INSERT INTO message_templates (business_id, kind, body) VALUES (${bizId}, 'reminder', 'te lembramos!')`;
 		await sql`
@@ -155,6 +164,7 @@ describe("DELETE /v1/auth/account", () => {
         (SELECT count(*)::int FROM clients WHERE business_id = ${bizId}) AS clients,
         (SELECT count(*)::int FROM appointments WHERE business_id = ${bizId}) AS appointments,
         (SELECT count(*)::int FROM transactions WHERE business_id = ${bizId}) AS transactions,
+        (SELECT count(*)::int FROM cash_sessions WHERE business_id = ${bizId}) AS cash,
         (SELECT count(*)::int FROM message_templates WHERE business_id = ${bizId}) AS templates,
         (SELECT count(*)::int FROM subscriptions WHERE business_id = ${bizId}) AS subs,
         (SELECT count(*)::int FROM working_hours WHERE user_id IN (SELECT id FROM users WHERE firebase_uid = ${u})) AS wh`;
