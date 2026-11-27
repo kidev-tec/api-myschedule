@@ -16,57 +16,42 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { type Db, getDb } from "../db/connection.js";
 import { paidCentsOf, paidCentsSql } from "../db/finance-queries.js";
-import {
-	appointments,
-	clients,
-	services,
-	transactions,
-	users,
-} from "../db/schema.js";
+import { appointments, clients, services, transactions } from "../db/schema.js";
 import {
 	type AppointmentFinance,
 	formatBRL,
-	MAX_CENTS,
 	paymentStatus,
 } from "../domain/payment-status.js";
 import type { AppEnv } from "../types.js";
+import {
+	amountCents,
+	cleanNotes,
+	firstIssue,
+	HttpError,
+	isoDate,
+	notes,
+	openCashSessionId,
+	paymentMethod,
+	requireUser,
+	uuidSchema,
+} from "./finance-shared.js";
 
-export const PAYMENT_METHODS = [
-	"pix",
-	"cash",
-	"debit",
-	"credit",
-	"payment_link",
-	"other",
-] as const;
-
-const NOTES_MAX = 500;
 /** Janela padrão de "A receber": tudo em aberto até 60 dias à frente. */
 const RECEIVABLES_AHEAD_MS = 60 * 24 * 3600 * 1000;
-
-const isoDate = z
-	.string()
-	.refine((v) => !Number.isNaN(new Date(v).getTime()), "Data inválida");
 
 export const paymentCreateSchema = z
 	.object({
 		appointment_id: z.uuid("Registro inválido").optional(),
 		client_id: z.uuid("Registro inválido").optional(),
-		amount_cents: z
-			.int("Valor inválido")
-			.min(1, "Valor inválido")
-			.max(MAX_CENTS, "Valor inválido"),
-		payment_method: z.enum(PAYMENT_METHODS, "Forma de pagamento inválida"),
+		amount_cents: amountCents,
+		payment_method: paymentMethod,
 		installments: z
 			.int("Parcelas: de 1 a 12")
 			.min(1, "Parcelas: de 1 a 12")
 			.max(12, "Parcelas: de 1 a 12")
 			.optional(),
 		occurred_at: isoDate.optional(),
-		notes: z
-			.string("Observações devem ser texto")
-			.max(NOTES_MAX, `Observações: no máximo ${NOTES_MAX} caracteres`)
-			.optional(),
+		notes: notes.optional(),
 	})
 	.refine(
 		(b) => (b.installments ?? 1) === 1 || b.payment_method === "credit",
@@ -78,14 +63,6 @@ export const receivablesQuerySchema = z.object({
 	to: isoDate.optional(),
 	client_id: z.uuid("Registro inválido").optional(),
 });
-
-/** 1ª mensagem do Zod (já em PT-BR) — o usuário leigo lê o `error`. */
-function firstIssue(err: z.ZodError): string {
-	/* v8 ignore next -- ZodError sempre tem ao menos 1 issue */
-	return err.issues[0]?.message ?? "Dados inválidos";
-}
-
-const uuidSchema = z.uuid();
 
 type Payment = typeof transactions.$inferSelect;
 
@@ -116,26 +93,6 @@ async function financeOf(
 		appointment_id: appointmentId,
 		...paymentStatus(priceCents, await paidCentsOf(db, appointmentId)),
 	};
-}
-
-async function requireUser(db: Db, firebaseUid: string) {
-	const [row] = await db
-		.select({ id: users.id, businessId: users.businessId })
-		.from(users)
-		.where(eq(users.firebaseUid, firebaseUid))
-		.limit(1);
-	/* v8 ignore next -- usuário sem sync: auth/paywall respondem antes */
-	return row ?? null;
-}
-
-/** Erros de regra dentro da transação → resposta HTTP. */
-class HttpError extends Error {
-	constructor(
-		readonly status: 404 | 422,
-		message: string,
-	) {
-		super(message);
-	}
 }
 
 export function financeRoutes(databaseUrl: string) {
@@ -278,8 +235,10 @@ export function financeRoutes(databaseUrl: string) {
 						installments: body.installments ?? 1,
 						kind,
 						occurredAt,
-						notes: body.notes?.trim() || null,
+						notes: cleanNotes(body.notes),
 						createdByUserId: user.id,
+						// 0028: caixa aberto no momento do recebimento
+						cashSessionId: await openCashSessionId(tx, user.businessId),
 					})
 					.returning();
 				/* v8 ignore next -- INSERT..RETURNING nunca é vazio */

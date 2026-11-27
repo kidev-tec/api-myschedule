@@ -30,7 +30,7 @@ export const openApiSpec = {
 		{ name: "Appointments", description: "Agenda do prestador" },
 		{
 			name: "Finanças",
-			description: "Recebimentos, estornos e contas a receber",
+			description: "Recebimentos, contas a receber, despesas e caixa diário",
 		},
 		{ name: "WorkingHours", description: "Horário de funcionamento" },
 		{
@@ -566,6 +566,55 @@ export const openApiSpec = {
 					},
 				],
 				responses: { "200": { description: "items[], totais" } },
+			},
+		},
+		"/v1/finance/expenses": {
+			get: {
+				tags: ["Finanças"],
+				summary: "Lista despesas com totais",
+				description:
+					"Filtros from/to (data da despesa ou vencimento), category, status=paid|pending. Totais: paid_cents, pending_cents, overdue_cents. Estornadas aparecem com voided_at e não somam.",
+				parameters: [
+					{ name: "from", in: "query", schema: { type: "string" } },
+					{ name: "to", in: "query", schema: { type: "string" } },
+					{ name: "category", in: "query", schema: { type: "string" } },
+					{ name: "status", in: "query", schema: { type: "string" } },
+				],
+				responses: {
+					"200": { description: "items[], totais" },
+					"400": { description: "Filtro inválido" },
+				},
+			},
+			post: {
+				tags: ["Finanças"],
+				summary: "Lança despesa (paga ou a pagar)",
+				description:
+					"Body: amount_cents, category (materiais|aluguel|taxas|energia_agua|marketing|outros — outros exige notes), paid? (padrão true; paga exige payment_method), date? (pagamento ou vencimento), notes?. Paga em dinheiro com caixa aberto entra no caixa.",
+				responses: {
+					"201": { description: "{ expense }" },
+					"400": { description: "Dados inválidos" },
+					"402": { description: "Paywall" },
+				},
+			},
+		},
+		"/v1/finance/expenses/{id}/pay": {
+			post: {
+				tags: ["Finanças"],
+				summary: "Paga uma despesa a pagar",
+				description: "Body: payment_method, date? (padrão agora).",
+				parameters: [
+					{
+						name: "id",
+						in: "path",
+						required: true,
+						schema: { type: "string", format: "uuid" },
+					},
+				],
+				responses: {
+					"200": { description: "{ expense }" },
+					"404": { description: "Não encontrada" },
+					"409": { description: "Já paga ou estornada" },
+				},
 			},
 		},
 		"/v1/working-hours": {
