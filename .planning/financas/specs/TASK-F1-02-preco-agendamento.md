@@ -1,6 +1,6 @@
 # TASK-F1-02 — Valor e situação de pagamento no agendamento
 
-- **Status:** Ready
+- **Status:** Done
 - **O QUE É:** gravar o preço ao criar/remarcar, permitir editar o valor e expor recebido/saldo/situação na agenda.
 - **EXECUTION MODE:** Interactive
 - **RF-IDs:** RF-F02 (situação), RF-F03

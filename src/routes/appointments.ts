@@ -7,15 +7,32 @@
  *    → erro SQL 23P01 mapeado para 409
  */
 
-import { and, asc, eq, gt, gte, isNotNull, lt, lte, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	eq,
+	gt,
+	gte,
+	isNotNull,
+	isNull,
+	lt,
+	lte,
+	sql,
+} from "drizzle-orm";
 import { Hono } from "hono";
 import { type Db, getDb } from "../db/connection.js";
+import {
+	paidCentsOf,
+	paidCentsSql,
+	servicePriceSql,
+} from "../db/finance-queries.js";
 import {
 	appointments,
 	businesses,
 	clients,
 	services,
 	timeOffs,
+	transactions,
 	users,
 	workingHours,
 } from "../db/schema.js";
@@ -30,6 +47,11 @@ import {
 	type WorkingHour,
 } from "../domain/duration.js";
 import { mirrorToCalendar } from "../domain/gcal-mirror.js";
+import {
+	formatBRL,
+	isValidCents,
+	paymentStatus,
+} from "../domain/payment-status.js";
 import { startsOnOrBeforeToday } from "../domain/schedule-day.js";
 import { resolveCombo } from "../domain/service-kits.js";
 import { notifyWaitlistOpening } from "../services/waitlist-notify.js";
@@ -212,6 +234,9 @@ export function appointmentRoutes(databaseUrl: string) {
 				service_price_cents: services.priceCents,
 				// 0026: veio pelo link de um estabelecimento (null = link próprio)
 				aggregator_name: businesses.name,
+				// 0027 (finanças): valor cobrado e recebido (situação derivada)
+				price_cents: appointments.priceCents,
+				paid_cents: paidCentsSql,
 			})
 			.from(appointments)
 			.leftJoin(clients, eq(appointments.clientId, clients.id))
@@ -229,7 +254,12 @@ export function appointmentRoutes(databaseUrl: string) {
 			)
 			.orderBy(asc(appointments.startsAt));
 
-		return c.json({ appointments: rows });
+		return c.json({
+			appointments: rows.map((r) => ({
+				...r,
+				...paymentStatus(r.price_cents, r.paid_cents),
+			})),
+		});
 	});
 
 	// POST /appointments — cria com checagem de overlap
@@ -504,6 +534,8 @@ export function appointmentRoutes(databaseUrl: string) {
 							: null,
 					notes: notes.value ?? null,
 					createdByUserId: user.id,
+					// 0027: snapshot do preço (bloqueio não tem valor)
+					priceCents: isBlock ? 0 : servicePriceSql(serviceId, user.businessId),
 				})
 				.returning();
 			return c.json({ appointment: created }, 201);
@@ -584,6 +616,7 @@ export function appointmentRoutes(databaseUrl: string) {
 			buffer_min?: unknown;
 			canceledReason?: unknown;
 			notes?: unknown;
+			price_cents?: unknown;
 		} | null;
 		if (!body) return c.json({ error: "Dados inválidos" }, 400);
 
@@ -604,6 +637,36 @@ export function appointmentRoutes(databaseUrl: string) {
 		const notes = parseNotes(body.notes);
 		if ("error" in notes) return c.json({ error: notes.error }, 400);
 		if (notes.value !== undefined) patch.notes = notes.value;
+
+		// 0027 (RF-F03): valor do atendimento — desconto/acréscimo. Nunca
+		// abaixo do já recebido; agendamento pago só muda após estorno.
+		if (body.price_cents !== undefined) {
+			if (!isValidCents(body.price_cents)) {
+				return c.json({ error: "Valor inválido" }, 400);
+			}
+			if (current.source === "block") {
+				return c.json({ error: "Bloqueio de horário não tem valor" }, 400);
+			}
+			const paid = await paidCentsOf(db, id);
+			if (paid > 0 && paid >= current.priceCents) {
+				return c.json(
+					{
+						error:
+							"Este agendamento já está pago — estorne um recebimento para alterar o valor",
+					},
+					422,
+				);
+			}
+			if (body.price_cents < paid) {
+				return c.json(
+					{
+						error: `O valor não pode ser menor que o já recebido (${formatBRL(paid)})`,
+					},
+					422,
+				);
+			}
+			patch.priceCents = body.price_cents;
+		}
 
 		if (body.status !== undefined) {
 			if (
@@ -842,10 +905,23 @@ export function appointmentRoutes(databaseUrl: string) {
 							// observações acompanham a remarcação (ou as novas enviadas)
 							notes: notes.value !== undefined ? notes.value : antiga.notes,
 							createdByUserId: user.id,
+							// 0027: valor acompanha a remarcação (ou o novo enviado)
+							priceCents: patch.priceCents ?? antiga.priceCents,
 						})
 						.returning();
 					/* v8 ignore next -- INSERT..RETURNING nunca é vazio no Postgres */
 					if (!criada) throw new Error("falha ao criar nova linha");
+					// 0027: recebimentos ativos seguem para a nova linha (o sinal
+					// não fica preso no agendamento cancelado por remarcação)
+					await tx
+						.update(transactions)
+						.set({ appointmentId: criada.id })
+						.where(
+							and(
+								eq(transactions.appointmentId, antiga.id),
+								isNull(transactions.voidedAt),
+							),
+						);
 					return criada;
 				});
 				mirrorToCalendar(databaseUrl, nova.id).catch((e) =>

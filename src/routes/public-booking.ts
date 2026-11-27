@@ -28,6 +28,7 @@ import {
 } from "drizzle-orm";
 import { Hono } from "hono";
 import { type Db, getDb } from "../db/connection.js";
+import { servicePriceSql } from "../db/finance-queries.js";
 import {
 	appointments,
 	businesses,
@@ -396,6 +397,8 @@ export function publicBookingRoutes(databaseUrl: string) {
 				source: "public_link",
 				// 0026: veio pelo link de um agregador
 				aggregatorBusinessId: loaded.aggregator?.id ?? null,
+				// 0027: snapshot do preço do serviço (módulo de finanças)
+				priceCents: servicePriceSql(svc.id, loaded.biz.id),
 			})
 			.returning();
 

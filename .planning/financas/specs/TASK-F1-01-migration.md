@@ -1,6 +1,6 @@
 # TASK-F1-01 — Migration 0027: preço no agendamento + livro-caixa
 
-- **Status:** Ready
+- **Status:** Done
 - **O QUE É:** migration idempotente que grava o valor do atendimento em `appointments` e estende `transactions` para registrar recebimentos.
 - **EXECUTION MODE:** Interactive (checkpoint: rodar 2x no banco local antes de seguir)
 - **RF-IDs:** RF-F01, RF-F02, RF-F03 (base de dados)
