@@ -324,6 +324,11 @@ export const transactions = pgTable(
 		createdByUserId: uuid("created_by_user_id").references(() => users.id),
 		// estorno: lançamento anulado sai de todos os cálculos, nunca é apagado
 		voidedAt: timestamp("voided_at", { withTimezone: true }),
+		// 0028: caixa aberto no momento do lançamento (null = sem caixa)
+		cashSessionId: uuid("cash_session_id").references(() => cashSessions.id),
+		// 0028: false = despesa a pagar (vencimento em due_at)
+		paid: boolean("paid").notNull().default(true),
+		dueAt: timestamp("due_at", { withTimezone: true }),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.notNull()
 			.defaultNow(),
@@ -333,6 +338,44 @@ export const transactions = pgTable(
 		index("transactions_appointment_idx")
 			.on(t.appointmentId)
 			.where(sql`voided_at IS NULL`),
+		index("transactions_cash_session_idx")
+			.on(t.cashSessionId)
+			.where(sql`voided_at IS NULL`),
+		index("transactions_business_type_idx").on(
+			t.businessId,
+			t.type,
+			t.occurredAt,
+		),
+	],
+);
+
+/** 0028: caixa diário (módulo de finanças, F2). 1 aberto por negócio. */
+export const cashSessions = pgTable(
+	"cash_sessions",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		businessId: uuid("business_id")
+			.notNull()
+			.references(() => businesses.id, { onDelete: "cascade" }),
+		openedBy: uuid("opened_by")
+			.notNull()
+			.references(() => users.id),
+		openedAt: timestamp("opened_at", { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+		openingCents: integer("opening_cents").notNull().default(0),
+		closedBy: uuid("closed_by").references(() => users.id),
+		closedAt: timestamp("closed_at", { withTimezone: true }),
+		countedCents: integer("counted_cents"),
+		// esperado em dinheiro, congelado no fechamento
+		expectedCents: integer("expected_cents"),
+		notes: text("notes"),
+	},
+	(t) => [
+		uniqueIndex("cash_sessions_one_open_idx")
+			.on(t.businessId)
+			.where(sql`closed_at IS NULL`),
+		index("cash_sessions_business_opened_idx").on(t.businessId, t.openedAt),
 	],
 );
 

@@ -16,6 +16,7 @@ import { getDb } from "../db/connection.js";
 import {
 	appointments,
 	businesses,
+	cashSessions,
 	clients,
 	deviceTokens,
 	loyaltyCards,
@@ -187,6 +188,10 @@ export function authSyncRoutes(databaseUrl: string) {
 			await tx
 				.delete(transactions)
 				.where(eq(transactions.businessId, me.businessId));
+			// 0028: caixas (opened_by → users) antes do usuário
+			await tx
+				.delete(cashSessions)
+				.where(eq(cashSessions.businessId, me.businessId));
 			await tx
 				.delete(loyaltyCards)
 				.where(
