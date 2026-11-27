@@ -40,6 +40,16 @@ export const EXPENSE_CATEGORIES = [
 	"outros",
 ] as const;
 
+/** Rótulos PT-BR das categorias (fluxo projetado, comprovantes). */
+export const EXPENSE_LABELS: Record<string, string> = {
+	materiais: "Materiais",
+	aluguel: "Aluguel",
+	taxas: "Taxas",
+	energia_agua: "Energia e água",
+	marketing: "Marketing",
+	outros: "Outros",
+};
+
 const category = z.enum(EXPENSE_CATEGORIES, "Categoria inválida");
 
 export const expenseCreateSchema = z

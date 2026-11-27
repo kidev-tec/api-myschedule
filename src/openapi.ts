@@ -783,6 +783,52 @@ export const openApiSpec = {
 				responses: { "200": { description: "Meta (target_cents null)" } },
 			},
 		},
+		"/v1/finance/cashflow": {
+			get: {
+				tags: ["Finanças"],
+				summary: "Fluxo de caixa projetado (próximos N dias)",
+				description:
+					"days 1–90 (padrão 30), em dias locais do negócio. Entradas = saldo dos " +
+					"agendamentos pendentes/confirmados no dia; saídas = despesas a pagar no " +
+					"vencimento; saldo acumulado a partir de 0. Atrasados em overdue_in_cents / " +
+					"overdue_out_cents.",
+				parameters: [
+					{
+						name: "days",
+						in: "query",
+						schema: { type: "integer", minimum: 1, maximum: 90 },
+					},
+				],
+				responses: {
+					"200": { description: "Projeção" },
+					"400": { description: "Período inválido" },
+				},
+			},
+		},
+		"/v1/finance/transactions/{id}/receipt": {
+			get: {
+				tags: ["Finanças"],
+				summary: "Dados do comprovante de um recebimento",
+				description:
+					"Atribui o número sequencial do negócio na 1ª emissão (depois é fixo). " +
+					"Sem telefone/e-mail do cliente. Estornado → 409.",
+				parameters: [
+					{
+						name: "id",
+						in: "path",
+						required: true,
+						schema: { type: "string", format: "uuid" },
+					},
+				],
+				responses: {
+					"200": {
+						description: "number, payment, business, client, appointment",
+					},
+					"404": { description: "Recebimento não encontrado" },
+					"409": { description: "Estornado" },
+				},
+			},
+		},
 		"/v1/working-hours": {
 			get: {
 				tags: ["WorkingHours"],

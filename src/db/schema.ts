@@ -329,6 +329,8 @@ export const transactions = pgTable(
 		// 0028: false = despesa a pagar (vencimento em due_at)
 		paid: boolean("paid").notNull().default(true),
 		dueAt: timestamp("due_at", { withTimezone: true }),
+		// 0030: nº do comprovante (sequencial por negócio, na 1ª emissão)
+		receiptNumber: integer("receipt_number"),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.notNull()
 			.defaultNow(),
@@ -341,6 +343,9 @@ export const transactions = pgTable(
 		index("transactions_cash_session_idx")
 			.on(t.cashSessionId)
 			.where(sql`voided_at IS NULL`),
+		uniqueIndex("transactions_receipt_number_uq")
+			.on(t.businessId, t.receiptNumber)
+			.where(sql`receipt_number IS NOT NULL`),
 		index("transactions_business_type_idx").on(
 			t.businessId,
 			t.type,

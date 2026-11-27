@@ -188,6 +188,13 @@ F2: kidev-tec/api-myschedule#61 e kidev-tec/apk-myschedule#86 (abertos para stag
 | F3-02 Metas (migration 0029) | api | `specs/TASK-F3-02-metas.md` |
 | F3-11 Resumo, relatórios e meta | apk | `apk/.planning/financas/specs/TASK-F3-11-relatorios-metas.md` |
 
+### Tasks da F4 (branch `feat/financas-projecao-comprovantes`)
+| Task | Repo | Arquivo |
+|---|---|---|
+| F4-01 Fluxo de caixa projetado | api | `specs/TASK-F4-01-fluxo-projetado.md` |
+| F4-02 Comprovante (migration 0030) | api | `specs/TASK-F4-02-comprovante.md` |
+| F4-11 Fluxo projetado e comprovante | apk | `apk/.planning/financas/specs/TASK-F4-11-fluxo-comprovante.md` |
+
 ## 8. Pontos de atenção
 
 - **Cobertura api 100/100/100/100**; apk ≥ gate vigente.
