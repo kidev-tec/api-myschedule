@@ -617,6 +617,65 @@ export const openApiSpec = {
 				},
 			},
 		},
+		"/v1/finance/cash/current": {
+			get: {
+				tags: ["Finanças"],
+				summary: "Caixa aberto com o resumo",
+				description:
+					"esperado = inicial + entradas em dinheiro − saídas em dinheiro; by_method informativo; movements. session null = caixa fechado.",
+				responses: { "200": { description: "{ session | null }" } },
+			},
+		},
+		"/v1/finance/cash/open": {
+			post: {
+				tags: ["Finanças"],
+				summary: "Abre o caixa",
+				description:
+					"Body: opening_cents (troco), notes?. No máximo 1 caixa aberto.",
+				responses: {
+					"201": { description: "{ session }" },
+					"409": { description: "Já aberto" },
+					"402": { description: "Paywall" },
+				},
+			},
+		},
+		"/v1/finance/cash/movements": {
+			post: {
+				tags: ["Finanças"],
+				summary: "Suprimento (in) ou sangria (out)",
+				description:
+					"Body: direction in|out, amount_cents, notes?. Sangria não passa do esperado (422). Não conta como receita/despesa.",
+				responses: {
+					"201": { description: "{ session }" },
+					"409": { description: "Sem caixa aberto" },
+					"422": { description: "Dinheiro insuficiente" },
+				},
+			},
+		},
+		"/v1/finance/cash/close": {
+			post: {
+				tags: ["Finanças"],
+				summary: "Fecha o caixa com o valor contado",
+				description:
+					"Body: counted_cents, notes?. Grava o esperado e a diferença (contado − esperado).",
+				responses: {
+					"200": { description: "{ session }" },
+					"409": { description: "Sem caixa aberto" },
+				},
+			},
+		},
+		"/v1/finance/cash": {
+			get: {
+				tags: ["Finanças"],
+				summary: "Histórico de caixas fechados",
+				description: "Sem período: últimos 30.",
+				parameters: [
+					{ name: "from", in: "query", schema: { type: "string" } },
+					{ name: "to", in: "query", schema: { type: "string" } },
+				],
+				responses: { "200": { description: "{ sessions[] }" } },
+			},
+		},
 		"/v1/working-hours": {
 			get: {
 				tags: ["WorkingHours"],

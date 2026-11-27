@@ -14,6 +14,7 @@ import { billingRoutes } from "./routes/billing.js";
 import { clientsRoutes } from "./routes/clients.js";
 import { docsRoutes } from "./routes/docs.js";
 import { financeRoutes } from "./routes/finance.js";
+import { financeCashRoutes } from "./routes/finance-cash.js";
 import { financeExpenseRoutes } from "./routes/finance-expenses.js";
 import { gcalRoutes } from "./routes/gcal.js";
 import {
@@ -110,6 +111,7 @@ export function createApp(opts: {
 	// módulo de finanças (.planning/financas) — escrita sujeita ao paywall
 	app.route("/v1", financeRoutes(opts.databaseUrl));
 	app.route("/v1", financeExpenseRoutes(opts.databaseUrl));
+	app.route("/v1", financeCashRoutes(opts.databaseUrl));
 	app.route("/v1/appointments", appointmentRoutes(opts.databaseUrl));
 
 	// Logo pública (sem auth — o link de agendamento usa) + rotas internas
