@@ -75,6 +75,18 @@ beforeAll(async () => {
     SELECT id, 1, '09:00', '18:00' FROM users WHERE firebase_uid = ${h.Authorization?.slice(7) ?? ""}`;
 });
 
+/**
+ * Link público só aceita horário futuro: segunda-feira (dia com expediente)
+ * pelo menos 7 dias à frente, calculada — data fixa quebra quando o
+ * calendário passa dela.
+ */
+const NEXT_MONDAY = (() => {
+	const d = new Date();
+	d.setUTCHours(0, 0, 0, 0);
+	d.setUTCDate(d.getUTCDate() + 7 + ((8 - d.getUTCDay()) % 7));
+	return d.toISOString().slice(0, 10);
+})();
+
 afterAll(async () => {
 	const ids = await sql<
 		{ business_id: string }[]
@@ -360,7 +372,7 @@ describe("kits de serviço", () => {
 				body: JSON.stringify({
 					name: "Cli Pub",
 					phone: "11977776666",
-					starts_at: "2026-11-09T13:00:00.000Z",
+					starts_at: `${NEXT_MONDAY}T13:00:00.000Z`,
 					...body,
 				}),
 			});
@@ -368,13 +380,13 @@ describe("kits de serviço", () => {
 		expect(pb.status).toBe(201);
 		const pbody = (await pb.json()) as { service: string; ends_at: string };
 		expect(pbody.service).toBe("Barba C + Corte C");
-		expect(pbody.ends_at).toBe("2026-11-09T13:50:00.000Z");
+		expect(pbody.ends_at).toBe(`${NEXT_MONDAY}T13:50:00.000Z`);
 		expect((await book({ service_ids: [a.id, k.id] })).status).toBe(400);
 		expect(
 			(
 				await book({
 					service_ids: [b.id],
-					starts_at: "2026-11-09T16:00:00.000Z",
+					starts_at: `${NEXT_MONDAY}T16:00:00.000Z`,
 				})
 			).status,
 		).toBe(201);
