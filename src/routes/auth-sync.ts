@@ -17,6 +17,7 @@ import {
 	appointments,
 	businesses,
 	cashSessions,
+	charges,
 	clients,
 	deviceTokens,
 	financialGoals,
@@ -183,6 +184,8 @@ export function authSyncRoutes(databaseUrl: string) {
 
 		await db.transaction(async (tx) => {
 			// ordem FK: netos → filhos → business/user por último
+			// 0031: cobranças (→ appointments/transactions) primeiro
+			await tx.delete(charges).where(eq(charges.businessId, me.businessId));
 			await tx
 				.delete(appointments)
 				.where(eq(appointments.businessId, me.businessId));

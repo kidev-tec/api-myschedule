@@ -829,6 +829,77 @@ export const openApiSpec = {
 				},
 			},
 		},
+		"/v1/finance/online/account": {
+			get: {
+				tags: ["Finanças"],
+				summary: "Recebimento online: disponível? situação da subconta Asaas",
+				description:
+					"status: none | pending | approved | rejected. Pendente consulta o Asaas.",
+				responses: { "200": { description: "{ available, status }" } },
+			},
+			post: {
+				tags: ["Finanças"],
+				summary:
+					"Ativa o recebimento online (cria a subconta Asaas do negócio)",
+				description:
+					"Body: cpf_cnpj, birth_date (CPF) ou company_type (CNPJ), mobile_phone, " +
+					"income_cents, postal_code, address, address_number, complement?, province, " +
+					"name?. A chave da subconta é guardada cifrada. Recurso desligado → 503.",
+				responses: {
+					"201": { description: "{ available, status: pending }" },
+					"409": { description: "Já ativado" },
+					"422": { description: "Recusado pelo Asaas" },
+					"503": { description: "Indisponível" },
+				},
+			},
+		},
+		"/v1/finance/charges": {
+			get: {
+				tags: ["Finanças"],
+				summary: "Cobranças por link de um agendamento",
+				parameters: [
+					{
+						name: "appointment_id",
+						in: "query",
+						required: true,
+						schema: { type: "string", format: "uuid" },
+					},
+				],
+				responses: { "200": { description: "{ charges[] }" } },
+			},
+			post: {
+				tags: ["Finanças"],
+				summary: "Gera cobrança por link (Pix, cartão ou boleto) na subconta",
+				description:
+					"Body: appointment_id, amount_cents? (padrão = saldo − cobranças em aberto), " +
+					"due_date? (padrão = dia do atendimento). Exige subconta aprovada e CPF do cliente.",
+				responses: {
+					"201": { description: "{ charge } com invoice_url" },
+					"409": { description: "Recebimento online não ativado/aprovado" },
+					"422": {
+						description: "Sem saldo, valor acima do saldo, cliente sem CPF",
+					},
+				},
+			},
+		},
+		"/v1/finance/charges/{id}": {
+			delete: {
+				tags: ["Finanças"],
+				summary: "Cancela cobrança em aberto (também no Asaas)",
+				parameters: [
+					{
+						name: "id",
+						in: "path",
+						required: true,
+						schema: { type: "string", format: "uuid" },
+					},
+				],
+				responses: {
+					"200": { description: "{ charge }" },
+					"409": { description: "Não está em aberto" },
+				},
+			},
+		},
 		"/v1/working-hours": {
 			get: {
 				tags: ["WorkingHours"],

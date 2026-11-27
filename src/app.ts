@@ -8,6 +8,7 @@ import { Hono } from "hono";
 import { firebaseAuthMiddleware } from "./middleware/auth.js";
 import { requireWritableFactory } from "./middleware/paywall.js";
 import { appointmentRoutes } from "./routes/appointments.js";
+import { asaasSubaccountWebhookRoutes } from "./routes/asaas-subaccount-webhook.js";
 import { asaasWebhookRoutes } from "./routes/asaas-webhook.js";
 import { authSyncRoutes } from "./routes/auth-sync.js";
 import { billingRoutes } from "./routes/billing.js";
@@ -17,6 +18,7 @@ import { financeRoutes } from "./routes/finance.js";
 import { financeCashRoutes } from "./routes/finance-cash.js";
 import { financeCashflowRoutes } from "./routes/finance-cashflow.js";
 import { financeExpenseRoutes } from "./routes/finance-expenses.js";
+import { financeOnlineRoutes } from "./routes/finance-online.js";
 import { financeReportRoutes } from "./routes/finance-reports.js";
 import { gcalRoutes } from "./routes/gcal.js";
 import {
@@ -116,6 +118,7 @@ export function createApp(opts: {
 	app.route("/v1", financeCashRoutes(opts.databaseUrl));
 	app.route("/v1", financeReportRoutes(opts.databaseUrl));
 	app.route("/v1", financeCashflowRoutes(opts.databaseUrl));
+	app.route("/v1", financeOnlineRoutes(opts.databaseUrl));
 	app.route("/v1/appointments", appointmentRoutes(opts.databaseUrl));
 
 	// Logo pública (sem auth — o link de agendamento usa) + rotas internas
@@ -130,6 +133,8 @@ export function createApp(opts: {
 	// Webhook do Asaas — público (Asaas não tem Firebase), raiz fora do /v1.
 	// Autenticado pelo header asaas-access-token (não pelo middleware Firebase).
 	app.route("/", asaasWebhookRoutes(opts.databaseUrl));
+	// F5: webhook das subcontas (recebimento online) — público, token próprio
+	app.route("/", asaasSubaccountWebhookRoutes(opts.databaseUrl));
 
 	// RF-07 — link público (sem Firebase auth; rotas /p/*)
 	app.route("/", publicBookingRoutes(opts.databaseUrl));

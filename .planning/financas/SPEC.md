@@ -154,7 +154,7 @@ A listagem da agenda (`GET /appointments`) ganha `price_cents`, `paid_cents` e
 | F2 | Caixa e despesas | F05, F06 | Abro o caixa, recebo em dinheiro, lanço despesa, fecho e vejo a diferença. |
 | F3 | Relatórios e metas | F07, F08, F09, F10 | Tela Finanças mostra faturamento do período, por serviço, ticket médio e % da meta. |
 | F4 | Projeção e comprovantes | F11, F12 | Vejo o fluxo dos próximos 30 dias e compartilho um comprovante. |
-| F5 | Checkout (futuro) | F13 | Depois da escolha do prestador — SPEC própria. |
+| F5 | Checkout | F13 | Prestador: **Asaas, subcontas** (2026-11-27). SPEC própria: `SPEC-F5-CHECKOUT.md`. |
 
 Cada fase gera `specs/TASK-xxx.md` (template de `docs/workflows/sdd.md`) antes de codar.
 Na branch única `feat/modulo-financas`, cada TASK vira um commit; a fase fecha com 1 PR por repo.

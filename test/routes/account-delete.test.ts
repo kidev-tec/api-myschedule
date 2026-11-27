@@ -136,6 +136,11 @@ describe("DELETE /v1/auth/account", () => {
       INSERT INTO transactions (business_id, type, amount_cents, category, kind, payment_method, cash_session_id, created_by_user_id)
       SELECT ${bizId}, 'income', 2000, 'suprimento', 'cash_in', 'cash', cs.id,
              (SELECT id FROM users WHERE firebase_uid = ${u}) FROM cs`;
+		// 0031: cobrança por link ligada ao agendamento
+		await sql`
+      INSERT INTO charges (business_id, appointment_id, asaas_payment_id, amount_cents, due_date)
+      SELECT ${bizId}, id, ${`pay_del_${u}`}, 1000, CURRENT_DATE
+      FROM appointments WHERE business_id = ${bizId} LIMIT 1`;
 		await sql`
       INSERT INTO message_templates (business_id, kind, body) VALUES (${bizId}, 'reminder', 'te lembramos!')`;
 		await sql`
@@ -168,6 +173,7 @@ describe("DELETE /v1/auth/account", () => {
         (SELECT count(*)::int FROM transactions WHERE business_id = ${bizId}) AS transactions,
         (SELECT count(*)::int FROM cash_sessions WHERE business_id = ${bizId}) AS cash,
         (SELECT count(*)::int FROM financial_goals WHERE business_id = ${bizId}) AS goals,
+        (SELECT count(*)::int FROM charges WHERE business_id = ${bizId}) AS charges,
         (SELECT count(*)::int FROM message_templates WHERE business_id = ${bizId}) AS templates,
         (SELECT count(*)::int FROM subscriptions WHERE business_id = ${bizId}) AS subs,
         (SELECT count(*)::int FROM working_hours WHERE user_id IN (SELECT id FROM users WHERE firebase_uid = ${u})) AS wh`;
