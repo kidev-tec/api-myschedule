@@ -17,36 +17,42 @@ import {
 const IV_LEN = 12;
 const TAG_LEN = 16;
 
-function deriveKey(): Buffer | null {
-	const secret = process.env.GCAL_ENC_KEY;
-	if (!secret) return null;
-	// normaliza qualquer tamanho de secret pra 32 bytes
-	return createHash("sha256").update(secret).digest();
-}
+/** Normaliza qualquer tamanho de segredo para 32 bytes. */
+const keyOf = (secret: string) => createHash("sha256").update(secret).digest();
 
-export function encryptToken(plaintext: string): string {
-	const key = deriveKey();
-	if (!key) return plaintext; // dev sem chave: plaintext (legado)
+/** AES-256-GCM com um segredo explícito (sem modo texto puro). */
+export function encryptWith(secret: string, plaintext: string): string {
 	const iv = randomBytes(IV_LEN);
-	const cipher = createCipheriv("aes-256-gcm", key, iv);
+	const cipher = createCipheriv("aes-256-gcm", keyOf(secret), iv);
 	const enc = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
 	const tag = cipher.getAuthTag();
 	return Buffer.concat([iv, tag, enc]).toString("base64");
 }
 
+/** Decifra o que `encryptWith` gerou; segredo errado/valor adulterado LANÇA. */
+export function decryptWith(secret: string, stored: string): string {
+	const raw = Buffer.from(stored, "base64");
+	const iv = raw.subarray(0, IV_LEN);
+	const tag = raw.subarray(IV_LEN, IV_LEN + TAG_LEN);
+	const enc = raw.subarray(IV_LEN + TAG_LEN);
+	const decipher = createDecipheriv("aes-256-gcm", keyOf(secret), iv);
+	decipher.setAuthTag(tag);
+	return Buffer.concat([decipher.update(enc), decipher.final()]).toString(
+		"utf8",
+	);
+}
+
+export function encryptToken(plaintext: string): string {
+	const secret = process.env.GCAL_ENC_KEY;
+	if (!secret) return plaintext; // dev sem chave: plaintext (legado)
+	return encryptWith(secret, plaintext);
+}
+
 export function decryptToken(stored: string): string {
-	const key = deriveKey();
-	if (!key) return stored; // dev sem chave: passthrough
+	const secret = process.env.GCAL_ENC_KEY;
+	if (!secret) return stored; // dev sem chave: passthrough
 	try {
-		const raw = Buffer.from(stored, "base64");
-		const iv = raw.subarray(0, IV_LEN);
-		const tag = raw.subarray(IV_LEN, IV_LEN + TAG_LEN);
-		const enc = raw.subarray(IV_LEN + TAG_LEN);
-		const decipher = createDecipheriv("aes-256-gcm", key, iv);
-		decipher.setAuthTag(tag);
-		return Buffer.concat([decipher.update(enc), decipher.final()]).toString(
-			"utf8",
-		);
+		return decryptWith(secret, stored);
 	} catch {
 		// valor legado em plaintext (anterior à chave) → devolve como está
 		return stored;

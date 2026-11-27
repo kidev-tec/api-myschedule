@@ -30,7 +30,8 @@ export const openApiSpec = {
 		{ name: "Appointments", description: "Agenda do prestador" },
 		{
 			name: "Finanças",
-			description: "Recebimentos, contas a receber, despesas e caixa diário",
+			description:
+				"Recebimentos, contas a receber, despesas, caixa diário, relatórios e metas",
 		},
 		{ name: "WorkingHours", description: "Horário de funcionamento" },
 		{
@@ -674,6 +675,229 @@ export const openApiSpec = {
 					{ name: "to", in: "query", schema: { type: "string" } },
 				],
 				responses: { "200": { description: "{ sessions[] }" } },
+			},
+		},
+		"/v1/finance/reports/summary": {
+			get: {
+				tags: ["Finanças"],
+				summary:
+					"Resumo do período: faturamento, despesas, resultado, ticket médio",
+				description:
+					"from/to = datas locais do negócio (AAAA-MM-DD, até 366 dias). Faturamento = " +
+					"recebimentos (regime de caixa); despesas pagas; by_method; series diária; " +
+					"done_count/sold_cents/avg_ticket_cents/avg_per_client_cents sobre atendimentos " +
+					"concluídos; open_cents = em aberto agora.",
+				parameters: [
+					{
+						name: "from",
+						in: "query",
+						required: true,
+						schema: { type: "string", format: "date" },
+					},
+					{
+						name: "to",
+						in: "query",
+						required: true,
+						schema: { type: "string", format: "date" },
+					},
+				],
+				responses: {
+					"200": { description: "Resumo" },
+					"400": { description: "Período inválido" },
+				},
+			},
+		},
+		"/v1/finance/reports/services": {
+			get: {
+				tags: ["Finanças"],
+				summary: "Atendimentos concluídos por serviço (quantidade e valor)",
+				description: "Kit conta como o kit. Ordenado pelo total.",
+				parameters: [
+					{
+						name: "from",
+						in: "query",
+						required: true,
+						schema: { type: "string", format: "date" },
+					},
+					{
+						name: "to",
+						in: "query",
+						required: true,
+						schema: { type: "string", format: "date" },
+					},
+				],
+				responses: {
+					"200": { description: "{ items[] }" },
+					"400": { description: "Período inválido" },
+				},
+			},
+		},
+		"/v1/finance/goals/{month}": {
+			get: {
+				tags: ["Finanças"],
+				summary: "Meta do mês com realizado e % atingido",
+				parameters: [
+					{
+						name: "month",
+						in: "path",
+						required: true,
+						schema: { type: "string", example: "2026-11" },
+					},
+				],
+				responses: {
+					"200": {
+						description:
+							"target_cents (null = sem meta), achieved_cents, percent, remaining_cents, days_left, needed_per_day_cents",
+					},
+				},
+			},
+			put: {
+				tags: ["Finanças"],
+				summary: "Define/atualiza a meta do mês",
+				description: "Body: target_cents (> 0).",
+				parameters: [
+					{
+						name: "month",
+						in: "path",
+						required: true,
+						schema: { type: "string" },
+					},
+				],
+				responses: {
+					"200": { description: "Meta" },
+					"400": { description: "Inválido" },
+					"402": { description: "Paywall" },
+				},
+			},
+			delete: {
+				tags: ["Finanças"],
+				summary: "Remove a meta do mês",
+				parameters: [
+					{
+						name: "month",
+						in: "path",
+						required: true,
+						schema: { type: "string" },
+					},
+				],
+				responses: { "200": { description: "Meta (target_cents null)" } },
+			},
+		},
+		"/v1/finance/cashflow": {
+			get: {
+				tags: ["Finanças"],
+				summary: "Fluxo de caixa projetado (próximos N dias)",
+				description:
+					"days 1–90 (padrão 30), em dias locais do negócio. Entradas = saldo dos " +
+					"agendamentos pendentes/confirmados no dia; saídas = despesas a pagar no " +
+					"vencimento; saldo acumulado a partir de 0. Atrasados em overdue_in_cents / " +
+					"overdue_out_cents.",
+				parameters: [
+					{
+						name: "days",
+						in: "query",
+						schema: { type: "integer", minimum: 1, maximum: 90 },
+					},
+				],
+				responses: {
+					"200": { description: "Projeção" },
+					"400": { description: "Período inválido" },
+				},
+			},
+		},
+		"/v1/finance/transactions/{id}/receipt": {
+			get: {
+				tags: ["Finanças"],
+				summary: "Dados do comprovante de um recebimento",
+				description:
+					"Atribui o número sequencial do negócio na 1ª emissão (depois é fixo). " +
+					"Sem telefone/e-mail do cliente. Estornado → 409.",
+				parameters: [
+					{
+						name: "id",
+						in: "path",
+						required: true,
+						schema: { type: "string", format: "uuid" },
+					},
+				],
+				responses: {
+					"200": {
+						description: "number, payment, business, client, appointment",
+					},
+					"404": { description: "Recebimento não encontrado" },
+					"409": { description: "Estornado" },
+				},
+			},
+		},
+		"/v1/finance/online/account": {
+			get: {
+				tags: ["Finanças"],
+				summary: "Recebimento online: disponível? situação da subconta Asaas",
+				description:
+					"status: none | pending | approved | rejected. Pendente consulta o Asaas.",
+				responses: { "200": { description: "{ available, status }" } },
+			},
+			post: {
+				tags: ["Finanças"],
+				summary:
+					"Ativa o recebimento online (cria a subconta Asaas do negócio)",
+				description:
+					"Body: cpf_cnpj, birth_date (CPF) ou company_type (CNPJ), mobile_phone, " +
+					"income_cents, postal_code, address, address_number, complement?, province, " +
+					"name?. A chave da subconta é guardada cifrada. Recurso desligado → 503.",
+				responses: {
+					"201": { description: "{ available, status: pending }" },
+					"409": { description: "Já ativado" },
+					"422": { description: "Recusado pelo Asaas" },
+					"503": { description: "Indisponível" },
+				},
+			},
+		},
+		"/v1/finance/charges": {
+			get: {
+				tags: ["Finanças"],
+				summary: "Cobranças por link de um agendamento",
+				parameters: [
+					{
+						name: "appointment_id",
+						in: "query",
+						required: true,
+						schema: { type: "string", format: "uuid" },
+					},
+				],
+				responses: { "200": { description: "{ charges[] }" } },
+			},
+			post: {
+				tags: ["Finanças"],
+				summary: "Gera cobrança por link (Pix, cartão ou boleto) na subconta",
+				description:
+					"Body: appointment_id, amount_cents? (padrão = saldo − cobranças em aberto), " +
+					"due_date? (padrão = dia do atendimento). Exige subconta aprovada e CPF do cliente.",
+				responses: {
+					"201": { description: "{ charge } com invoice_url" },
+					"409": { description: "Recebimento online não ativado/aprovado" },
+					"422": {
+						description: "Sem saldo, valor acima do saldo, cliente sem CPF",
+					},
+				},
+			},
+		},
+		"/v1/finance/charges/{id}": {
+			delete: {
+				tags: ["Finanças"],
+				summary: "Cancela cobrança em aberto (também no Asaas)",
+				parameters: [
+					{
+						name: "id",
+						in: "path",
+						required: true,
+						schema: { type: "string", format: "uuid" },
+					},
+				],
+				responses: {
+					"200": { description: "{ charge }" },
+					"409": { description: "Não está em aberto" },
+				},
 			},
 		},
 		"/v1/working-hours": {

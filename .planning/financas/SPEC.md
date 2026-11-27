@@ -154,7 +154,7 @@ A listagem da agenda (`GET /appointments`) ganha `price_cents`, `paid_cents` e
 | F2 | Caixa e despesas | F05, F06 | Abro o caixa, recebo em dinheiro, lanço despesa, fecho e vejo a diferença. |
 | F3 | Relatórios e metas | F07, F08, F09, F10 | Tela Finanças mostra faturamento do período, por serviço, ticket médio e % da meta. |
 | F4 | Projeção e comprovantes | F11, F12 | Vejo o fluxo dos próximos 30 dias e compartilho um comprovante. |
-| F5 | Checkout (futuro) | F13 | Depois da escolha do prestador — SPEC própria. |
+| F5 | Checkout | F13 | Prestador: **Asaas, subcontas** (2026-11-27). SPEC própria: `SPEC-F5-CHECKOUT.md`. |
 
 Cada fase gera `specs/TASK-xxx.md` (template de `docs/workflows/sdd.md`) antes de codar.
 Na branch única `feat/modulo-financas`, cada TASK vira um commit; a fase fecha com 1 PR por repo.
@@ -178,6 +178,22 @@ F1 concluída: kidev-tec/api-myschedule#60 e kidev-tec/apk-myschedule#85 (merge 
 | F2-03 Caixa diário | api | `specs/TASK-F2-03-caixa.md` |
 | F2-11 Despesas | apk | `apk/.planning/financas/specs/TASK-F2-11-despesas.md` |
 | F2-12 Caixa do dia | apk | `apk/.planning/financas/specs/TASK-F2-12-caixa.md` |
+
+F2: kidev-tec/api-myschedule#61 e kidev-tec/apk-myschedule#86 (abertos para staging em 2026-11-27).
+
+### Tasks da F3 (branch `feat/financas-relatorios`)
+| Task | Repo | Arquivo |
+|---|---|---|
+| F3-01 Relatórios (faturamento, por serviço, ticket médio) | api | `specs/TASK-F3-01-relatorios.md` |
+| F3-02 Metas (migration 0029) | api | `specs/TASK-F3-02-metas.md` |
+| F3-11 Resumo, relatórios e meta | apk | `apk/.planning/financas/specs/TASK-F3-11-relatorios-metas.md` |
+
+### Tasks da F4 (branch `feat/financas-projecao-comprovantes`)
+| Task | Repo | Arquivo |
+|---|---|---|
+| F4-01 Fluxo de caixa projetado | api | `specs/TASK-F4-01-fluxo-projetado.md` |
+| F4-02 Comprovante (migration 0030) | api | `specs/TASK-F4-02-comprovante.md` |
+| F4-11 Fluxo projetado e comprovante | apk | `apk/.planning/financas/specs/TASK-F4-11-fluxo-comprovante.md` |
 
 ## 8. Pontos de atenção
 
@@ -203,3 +219,4 @@ F1 concluída: kidev-tec/api-myschedule#60 e kidev-tec/apk-myschedule#85 (merge 
 | D7 | Recebimento avulso (sem agendamento, ex.: venda de produto)? | Sim, com cliente opcional. |
 | D8 | Comprovante: texto compartilhável ou PDF/imagem? | Imagem/PDF simples gerado no app. |
 | D9 | Ordem das fases (§7) está boa? | F1 → F4 nessa ordem. |
+| D10 | "Por serviço" e ticket médio: base de cálculo? | **Aprovada (2026-11-27):** valor dos atendimentos concluídos no período (`price_cents`, o que foi vendido), separado do faturamento em caixa (D1). |

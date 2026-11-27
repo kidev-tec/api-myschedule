@@ -17,8 +17,10 @@ import {
 	appointments,
 	businesses,
 	cashSessions,
+	charges,
 	clients,
 	deviceTokens,
+	financialGoals,
 	loyaltyCards,
 	loyaltyPrograms,
 	messageTemplates,
@@ -182,12 +184,17 @@ export function authSyncRoutes(databaseUrl: string) {
 
 		await db.transaction(async (tx) => {
 			// ordem FK: netos → filhos → business/user por último
+			// 0031: cobranças (→ appointments/transactions) primeiro
+			await tx.delete(charges).where(eq(charges.businessId, me.businessId));
 			await tx
 				.delete(appointments)
 				.where(eq(appointments.businessId, me.businessId));
 			await tx
 				.delete(transactions)
 				.where(eq(transactions.businessId, me.businessId));
+			await tx
+				.delete(financialGoals)
+				.where(eq(financialGoals.businessId, me.businessId));
 			// 0028: caixas (opened_by → users) antes do usuário
 			await tx
 				.delete(cashSessions)

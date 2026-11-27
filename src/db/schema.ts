@@ -119,6 +119,15 @@ export const businesses = pgTable("businesses", {
 		.default("independent"),
 	// 0026: código "E-XXXXXXXX" — gerado na 1ª promoção a agregador
 	aggregatorCode: varchar("aggregator_code", { length: 12 }).unique(),
+	// 0031: recebimento online (subconta Asaas). Chave sempre CIFRADA.
+	asaasSubAccountId: varchar("asaas_sub_account_id", { length: 64 }),
+	asaasSubWalletId: varchar("asaas_sub_wallet_id", { length: 64 }),
+	asaasSubApiKeyEnc: text("asaas_sub_api_key_enc"),
+	// none | pending | approved | rejected
+	asaasSubStatus: varchar("asaas_sub_status", { length: 20 })
+		.notNull()
+		.default("none"),
+	asaasSubUpdatedAt: timestamp("asaas_sub_updated_at", { withTimezone: true }),
 	createdAt: timestamp("created_at", { withTimezone: true })
 		.notNull()
 		.defaultNow(),
@@ -329,6 +338,10 @@ export const transactions = pgTable(
 		// 0028: false = despesa a pagar (vencimento em due_at)
 		paid: boolean("paid").notNull().default(true),
 		dueAt: timestamp("due_at", { withTimezone: true }),
+		// 0030: nº do comprovante (sequencial por negócio, na 1ª emissão)
+		receiptNumber: integer("receipt_number"),
+		// 0031: pagamento Asaas que gerou o lançamento (idempotência)
+		asaasPaymentId: varchar("asaas_payment_id", { length: 64 }),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.notNull()
 			.defaultNow(),
@@ -341,6 +354,12 @@ export const transactions = pgTable(
 		index("transactions_cash_session_idx")
 			.on(t.cashSessionId)
 			.where(sql`voided_at IS NULL`),
+		uniqueIndex("transactions_asaas_payment_uq")
+			.on(t.asaasPaymentId)
+			.where(sql`asaas_payment_id IS NOT NULL`),
+		uniqueIndex("transactions_receipt_number_uq")
+			.on(t.businessId, t.receiptNumber)
+			.where(sql`receipt_number IS NOT NULL`),
 		index("transactions_business_type_idx").on(
 			t.businessId,
 			t.type,
@@ -377,6 +396,54 @@ export const cashSessions = pgTable(
 			.where(sql`closed_at IS NULL`),
 		index("cash_sessions_business_opened_idx").on(t.businessId, t.openedAt),
 	],
+);
+
+/** 0031: cobrança por link (Asaas, subconta do negócio). */
+export const charges = pgTable(
+	"charges",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		businessId: uuid("business_id")
+			.notNull()
+			.references(() => businesses.id, { onDelete: "cascade" }),
+		appointmentId: uuid("appointment_id")
+			.notNull()
+			.references(() => appointments.id),
+		asaasPaymentId: varchar("asaas_payment_id", { length: 64 })
+			.notNull()
+			.unique(),
+		amountCents: integer("amount_cents").notNull(),
+		// pending | paid | overdue | canceled | refunded
+		status: varchar("status", { length: 20 }).notNull().default("pending"),
+		invoiceUrl: text("invoice_url"),
+		dueDate: date("due_date").notNull(),
+		transactionId: uuid("transaction_id").references(() => transactions.id),
+		createdBy: uuid("created_by").references(() => users.id),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+	},
+	(t) => [index("charges_appointment_idx").on(t.appointmentId)],
+);
+
+/** 0029: meta mensal de faturamento (módulo de finanças, F3). */
+export const financialGoals = pgTable(
+	"financial_goals",
+	{
+		businessId: uuid("business_id")
+			.notNull()
+			.references(() => businesses.id, { onDelete: "cascade" }),
+		// 1º dia do mês ("YYYY-MM-01")
+		month: date("month").notNull(),
+		targetCents: integer("target_cents").notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+	},
+	(t) => [primaryKey({ columns: [t.businessId, t.month] })],
 );
 
 export const loyaltyPrograms = pgTable("loyalty_programs", {
