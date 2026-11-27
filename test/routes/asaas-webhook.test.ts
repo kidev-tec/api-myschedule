@@ -124,15 +124,23 @@ afterAll(async () => {
 });
 
 describe("eventToStatus (unit)", () => {
-	it("mapeia eventos do Asaas para estados internos", () => {
+	it("formato oficial do Asaas (underscore — docs.asaas.com/docs/webhook-para-cobrancas e eventos-para-assinaturas)", () => {
+		expect(eventToStatus("PAYMENT_CONFIRMED")).toBe("active");
+		expect(eventToStatus("PAYMENT_RECEIVED")).toBe("active");
+		expect(eventToStatus("PAYMENT_OVERDUE")).toBe("past_due");
+		expect(eventToStatus("PAYMENT_REFUNDED")).toBe("canceled");
+		expect(eventToStatus("SUBSCRIPTION_INACTIVATED")).toBe("canceled");
+		expect(eventToStatus("SUBSCRIPTION_DELETED")).toBe("canceled");
+		expect(eventToStatus("PAYMENT_CREATED")).toBeNull();
+		expect(eventToStatus("SUBSCRIPTION_CREATED")).toBeNull();
+		expect(eventToStatus("")).toBeNull();
+		expect(eventToStatus("EVENTO_INEXISTENTE")).toBeNull();
+	});
+
+	it("aceita o formato antigo com ponto (compatibilidade)", () => {
 		expect(eventToStatus("PAYMENT.CONFIRMED")).toBe("active");
-		expect(eventToStatus("PAYMENT.RECEIVED")).toBe("active");
 		expect(eventToStatus("PAYMENT.OVERDUE")).toBe("past_due");
 		expect(eventToStatus("SUBSCRIPTION.CANCELED")).toBe("canceled");
-		expect(eventToStatus("PAYMENT.REFUNDED")).toBe("canceled");
-		expect(eventToStatus("PAYMENT.CREATED")).toBeNull();
-		expect(eventToStatus("")).toBeNull();
-		expect(eventToStatus("EVENTO.INEXISTENTE")).toBeNull();
 	});
 });
 
@@ -142,27 +150,27 @@ describe("POST /webhooks/asaas", () => {
 		const noHeader = await webhookApp.request("/webhooks/asaas", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ event: "PAYMENT.CONFIRMED" }),
+			body: JSON.stringify({ event: "PAYMENT_CONFIRMED" }),
 		});
 		expect(noHeader.status).toBe(401);
 
-		const wrong = await hook({ event: "PAYMENT.CONFIRMED" }, "errado");
+		const wrong = await hook({ event: "PAYMENT_CONFIRMED" }, "errado");
 		expect(wrong.status).toBe(401);
 
 		vi.stubEnv("ASAAS_WEBHOOK_TOKEN", "");
-		const noEnv = await hook({ event: "PAYMENT.CONFIRMED" });
+		const noEnv = await hook({ event: "PAYMENT_CONFIRMED" });
 		expect(noEnv.status).toBe(401);
 		vi.stubEnv("ASAAS_WEBHOOK_TOKEN", TOKEN);
 	});
 
-	it("PAYMENT.CONFIRMED → active (substitui trial; trial_ends_at fica)", async () => {
+	it("PAYMENT_CONFIRMED → active (substitui trial; trial_ends_at fica)", async () => {
 		const bizId = await createBusinessWithCustomer(
 			"Pro Teste Wh Confirm",
 			"cus_wh1",
 			"trial",
 		);
 		const res = await hook({
-			event: "PAYMENT.CONFIRMED",
+			event: "PAYMENT_CONFIRMED",
 			payment: { customer: "cus_wh1" },
 		});
 		expect(res.status).toBe(200);
@@ -170,42 +178,42 @@ describe("POST /webhooks/asaas", () => {
 		expect(await statusOf(bizId)).toBe("active");
 	});
 
-	it("PAYMENT.OVERDUE → past_due", async () => {
+	it("PAYMENT_OVERDUE → past_due", async () => {
 		const bizId = await createBusinessWithCustomer(
 			"Pro Teste Wh Overdue",
 			"cus_wh2",
 			"active",
 		);
 		const res = await hook({
-			event: "PAYMENT.OVERDUE",
+			event: "PAYMENT_OVERDUE",
 			payment: { customer: "cus_wh2" },
 		});
 		expect(res.status).toBe(200);
 		expect(await statusOf(bizId)).toBe("past_due");
 	});
 
-	it("SUBSCRIPTION.CANCELED → canceled", async () => {
+	it("SUBSCRIPTION_DELETED → canceled", async () => {
 		const bizId = await createBusinessWithCustomer(
 			"Pro Teste Wh Cancel",
 			"cus_wh3",
 			"active",
 		);
 		const res = await hook({
-			event: "SUBSCRIPTION.CANCELED",
+			event: "SUBSCRIPTION_DELETED",
 			subscription: { customer: "cus_wh3" },
 		});
 		expect(res.status).toBe(200);
 		expect(await statusOf(bizId)).toBe("canceled");
 	});
 
-	it("PAYMENT.REFUNDED → canceled", async () => {
+	it("PAYMENT_REFUNDED → canceled", async () => {
 		const bizId = await createBusinessWithCustomer(
 			"Pro Teste Wh Refund",
 			"cus_wh4",
 			"active",
 		);
 		const res = await hook({
-			event: "PAYMENT.REFUNDED",
+			event: "PAYMENT_REFUNDED",
 			payment: { customer: "cus_wh4" },
 		});
 		expect(await statusOf(bizId)).toBe("canceled");
@@ -218,7 +226,7 @@ describe("POST /webhooks/asaas", () => {
 			"active",
 		);
 		const body = {
-			event: "PAYMENT.CONFIRMED",
+			event: "PAYMENT_CONFIRMED",
 			payment: { customer: "cus_wh5" },
 		};
 		await hook(body);
@@ -229,7 +237,7 @@ describe("POST /webhooks/asaas", () => {
 
 	it("evento desconhecido → 200 ignored (nunca 4xx pro Asaas)", async () => {
 		const res = await hook({
-			event: "PAYMENT.CREATED",
+			event: "PAYMENT_CREATED",
 			payment: { customer: "cus_x" },
 		});
 		expect(res.status).toBe(200);
@@ -251,7 +259,7 @@ describe("POST /webhooks/asaas", () => {
 
 	it("customer desconhecido → 200 ignored com log", async () => {
 		const res = await hook({
-			event: "PAYMENT.CONFIRMED",
+			event: "PAYMENT_CONFIRMED",
 			payment: { customer: "cus_outro_ambiente" },
 		});
 		expect(res.status).toBe(200);
@@ -259,7 +267,7 @@ describe("POST /webhooks/asaas", () => {
 	});
 
 	it("evento com status mas sem customer → 200 ignored", async () => {
-		const res = await hook({ event: "PAYMENT.CONFIRMED" });
+		const res = await hook({ event: "PAYMENT_CONFIRMED" });
 		expect(res.status).toBe(200);
 		expect(await res.json()).toEqual({ ok: true, ignored: true });
 	});
@@ -273,7 +281,7 @@ describe("POST /webhooks/asaas", () => {
 				"asaas-access-token": TOKEN,
 			},
 			body: JSON.stringify({
-				event: "PAYMENT.CONFIRMED",
+				event: "PAYMENT_CONFIRMED",
 				payment: { customer: "cus_nao_existe" },
 			}),
 		});
